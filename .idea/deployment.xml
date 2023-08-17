@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="Always" serverName="mosongsong@155.69.148.197:22 password (3)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+    <option name="confirmBeforeUploading" value="false" />
+    <serverData>
+      <paths name="mosongsong@155.69.148.197:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/mosonsong/RankPQO" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="mosongsong@155.69.148.197:22 password (3)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/mosonsong/RankPQO" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
+  </component>
+</project>
