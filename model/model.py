@@ -109,132 +109,9 @@ class PlanEmbeddingNet(nn.Module):
         return super().cuda()
 
 
-class PlanEmbeddingModel():
-    def __init__(self, feature_generator) -> None:
-        self._net = None
-        self._feature_generator = feature_generator
-        self._input_feature_dim = None
-        self._model_parallel = None
-
-    def load(self, path):
-        with open(_input_feature_dim_path(path), "rb") as f:
-            self._input_feature_dim = joblib.load(f)
-
-        self._net = PlanEmbeddingNet(self._input_feature_dim)
-        if CUDA:
-            self._net.load_state_dict(torch.load(_nn_path(path)))
-        else:
-            self._net.load_state_dict(torch.load(
-                _nn_path(path), map_location=torch.device('cpu')))
-        self._net.eval()
-
-        with open(_feature_generator_path(path), "rb") as f:
-            self._feature_generator = joblib.load(f)
-
-    def save(self, path):
-        os.makedirs(path, exist_ok=True)
-
-        if CUDA:
-            torch.save(self._net.module.state_dict(), _nn_path(path))
-        else:
-            torch.save(self._net.state_dict(), _nn_path(path))
-
-        with open(_feature_generator_path(path), "wb") as f:
-            joblib.dump(self._feature_generator, f)
-        with open(_input_feature_dim_path(path), "wb") as f:
-            joblib.dump(self._input_feature_dim, f)
-
-    def fit(self, X, Y, pre_training=False):
-        if isinstance(Y, list):
-            Y = np.array(Y)
-            Y = Y.reshape(-1, 1)
-
-        batch_size = 64
-        if CUDA:
-            batch_size = batch_size * len(GPU_LIST)
-
-        pairs = []
-        for i in range(len(Y)):
-            pairs.append((X[i], Y[i]))
-        dataset = DataLoader(pairs,
-                             batch_size=batch_size,
-                             shuffle=True,
-                             collate_fn=collate_fn)
-
-        if not pre_training:
-            # # determine the initial number of channels
-            input_feature_dim = len(X[0].get_feature())
-            print("input_feature_dim:", input_feature_dim)
-
-            self._net = PlanEmbeddingNet(input_feature_dim)
-            self._input_feature_dim = input_feature_dim
-            if CUDA:
-                self._net = self._net.cuda(device)
-                self._net = torch.nn.DataParallel(
-                    self._net, device_ids=GPU_LIST)
-                self._net.cuda(device)
-
-        optimizer = None
-        if CUDA:
-            optimizer = torch.optim.Adam(self._net.module.parameters())
-            optimizer = nn.DataParallel(optimizer, device_ids=GPU_LIST)
-        else:
-            optimizer = torch.optim.Adam(self._net.parameters())
-
-        loss_fn = torch.nn.MSELoss()
-        losses = []
-        start_time = time()
-        for epoch in range(100):
-            loss_accum = 0
-            for x, y in dataset:
-                if CUDA:
-                    y = y.cuda(device)
-
-                tree = None
-                if CUDA:
-                    tree = self._net.module.build_trees(x)
-                else:
-                    tree = self._net.build_trees(x)
-
-                y_pred = self._net(tree)
-                loss = loss_fn(y_pred, y)
-                loss_accum += loss.item()
-
-                if CUDA:
-                    optimizer.module.zero_grad()
-                    loss.backward()
-                    optimizer.module.step()
-                else:
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-
-            loss_accum /= len(dataset)
-            losses.append(loss_accum)
-
-            print("Epoch", epoch, "training loss:", loss_accum)
-        print("training time:", time() - start_time, "batch size:", batch_size)
-
-    def predict(self, x):
-        if CUDA:
-            self._net = self._net.cuda(device)
-
-        if not isinstance(x, list):
-            x = [x]
-
-        tree = None
-        if CUDA:
-            tree = self._net.module.build_trees(x)
-        else:
-            tree = self._net.build_trees(x)
-
-        pred = self._net(tree).cpu().detach().numpy()
-        return pred
-
-
-class ParameterEmbeddingModel(nn.Module):
+class ParameterEmbeddingNet(nn.Module):
     def __init__(self, template_id):
-        super(ParameterEmbeddingModel, self).__init__()
+        super(ParameterEmbeddingNet, self).__init__()
 
         self.id = template_id
         input_dim = Template_DIM[template_id]
@@ -249,18 +126,58 @@ class ParameterEmbeddingModel(nn.Module):
         x = self.fc3(x)
         return x
 
-    def save(self, path):
-        torch.save(self.state_dict(), _fnn_path(path, self.id))
+
+class RankPQOModel():
+    def __init__(self, feature_generator, template_id) -> None:
+        super(self).__init__()
+        self._feature_generator = feature_generator
+        self._input_feature_dim = None
+        self._model_parallel = None
+        self._template_id = template_id
+        self._parameter_input_dim = Template_DIM[template_id]
 
     def load(self, path):
-        self.load_state_dict(torch.load(_fnn_path(path, self.id)))
+        with open(_input_feature_dim_path(path), "rb") as f:
+            self._input_feature_dim = joblib.load(f)
 
+        self.plan_net = PlanEmbeddingNet(self._input_feature_dim)
+        if CUDA:
+            self.plan_net.load_state_dict(torch.load(_nn_path(path)))
+        else:
+            self.plan_net.load_state_dict(torch.load(
+                _nn_path(path), map_location=torch.device('cpu')))
+        self.plan_net.eval()
 
-class RankPQOModel(PlanEmbeddingModel, ParameterEmbeddingModel):
-    def __init__(self, feature_generator) -> None:
-        super().__init__(feature_generator)
+        self.parameter_net = ParameterEmbeddingNet(self._parameter_input_dim)
+        if CUDA:
+            self.parameter_net.load_state_dict(torch.load(_fnn_path(path, self._template_id)))
+        else:
+            self.parameter_net.load_state_dict(torch.load(
+                _fnn_path(path, self._template_id), map_location=torch.device('cpu')))
+        self.parameter_net.eval()
 
-    def fit(self, X1, X2, Y1, Y2, Z, template_id, pre_training=False):
+        with open(_feature_generator_path(path), "rb") as f:
+            self._feature_generator = joblib.load(f)
+
+    def save(self, path):
+        os.makedirs(path, exist_ok=True)
+
+        if CUDA:
+            torch.save(self.plan_net.module.state_dict(), _nn_path(path))
+        else:
+            torch.save(self.plan_net.state_dict(), _nn_path(path))
+
+        if CUDA:
+            torch.save(self.parameter_net.module.state_dict(), _fnn_path(path, self._template_id))
+        else:
+            torch.save(self.parameter_net.state_dict(), _fnn_path(path, self._template_id))
+
+        with open(_feature_generator_path(path), "wb") as f:
+            joblib.dump(self._feature_generator, f)
+        with open(_input_feature_dim_path(path), "wb") as f:
+            joblib.dump(self._input_feature_dim, f)
+
+    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False):
         assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
         if isinstance(Y1, list):
             Y1 = np.array(Y1)
@@ -274,21 +191,18 @@ class RankPQOModel(PlanEmbeddingModel, ParameterEmbeddingModel):
             input_feature_dim = len(X1[0].get_feature())
             print("input_feature_dim:", input_feature_dim)
 
-            self.plan_net = PlanEmbeddingModel(input_feature_dim)
+            self.plan_net = PlanEmbeddingNet(input_feature_dim)
             self._input_feature_dim = input_feature_dim
+            self.parameter_net = PlanEmbeddingNet(self._template_id)
             if CUDA:
                 self.plan_net = self.plan_net.cuda(device)
                 self.plan_net = torch.nn.DataParallel(
                     self.plan_net, device_ids=GPU_LIST)
                 self.plan_net.cuda(device)
-
-        self.parameter_net = PlanEmbeddingNet(template_id)
-        if CUDA:
-            self.parameter_net = self.parameter_net.cuda(device)
-            self.parameter_net = torch.nn.DataParallel(
-                self.parameter_net, device_ids=GPU_LIST)
-            self.parameter_net.cuda(device)
-
+                self.parameter_net = self.parameter_net.cuda(device)
+                self.parameter_net = torch.nn.DataParallel(
+                    self.parameter_net, device_ids=GPU_LIST)
+                self.parameter_net.cuda(device)
 
         pairs = []
         for i in range(len(X1)):
@@ -317,7 +231,6 @@ class RankPQOModel(PlanEmbeddingModel, ParameterEmbeddingModel):
         bce_loss_fn = torch.nn.BCELoss()
 
         losses = []
-        sigmoid = nn.Sigmoid()
         start_time = time()
         for epoch in range(100):
             loss_accum = 0

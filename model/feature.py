@@ -112,6 +112,15 @@ class FeatureGenerator():
                 y.append(None)
         return local_features, y
 
+    def transform_z(self, Z):
+        parameter_features = []
+
+        for z in Z:
+            # TODO: Implement this function
+            pass
+
+        return parameter_features
+
 
 class SampleEntity():
     def __init__(self, node_type: np.ndarray, startup_cost: float, total_cost: float,

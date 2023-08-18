@@ -3,8 +3,13 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/data_management" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/database_integrations" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/evaluation" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/model" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/model/TreeConvolution" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/model/TreeConvolution/test" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/train" isTestSource="false" />
     </content>
     <orderEntry type="jdk" jdkName="Remote Python 3.8.17 (sftp://mosongsong@155.69.148.197:22/home/mosonsong/anaconda3/envs/RankPQO/bin/python)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
