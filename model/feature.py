@@ -2,6 +2,9 @@ import json
 from abc import ABCMeta, abstractmethod
 
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 FEATURE_LIST = ['Node Type', 'Startup Cost',
                 'Total Cost', 'Plan Rows', 'Plan Width']
@@ -22,6 +25,66 @@ def json_str_to_json_obj(json_data):
         json_obj = json_obj[0]
         assert type(json_obj) == dict
     return json_obj
+
+
+def apply_preprocessing_vector(vector: torch.Tensor,
+                               params: list,
+                               preprocessing_infos: list) -> torch.Tensor:
+    """Generates a preprocessed vector for a given parameter input.
+
+    input example
+    vector = torch.tensor([25, 5.0, "apple"])
+    params = [
+        {"data_type": "int", "min": 0, "max": 100},
+        {"data_type": "float"},
+        {"data_type": "text", "distinct_values": ["apple", "banana", "cherry"]}
+    ]
+    preprocessing_infos = [
+        {"type": "one_hot"},
+        {"type": "std_normalization", "mean": 0.0, "variance": 1.0},
+        {"type": "embedding", "output_dim": 5}
+    ]
+    """
+
+
+    processed_components = []
+
+    for i, (param, preprocessing_info) in enumerate(zip(params, preprocessing_infos)):
+        data_type = param["data_type"]
+        preprocessing_type = preprocessing_info["type"]
+        layer = vector[i]
+
+        if data_type == "float" and preprocessing_type == "std_normalization":
+            mean = preprocessing_info["mean"]
+            std = torch.sqrt(preprocessing_info["variance"])
+            processed_components.append((layer - mean) / std)
+
+        elif data_type == "int":
+            shifted_layer = layer - param["min"]
+            if preprocessing_type == "embedding":
+                embed = nn.Embedding(param["max"] - param["min"] + 1,
+                                     preprocessing_info["output_dim"])
+                processed_components.append(embed(shifted_layer.long()))
+            elif preprocessing_type == "one_hot":
+                processed_components.append(
+                    F.one_hot(shifted_layer.long(), num_classes=param["max"] - param["min"] + 1).float())
+
+        elif data_type == "text":
+            vocab = {word: idx for idx, word in enumerate(param["distinct_values"])}
+            num_oov_indices = preprocessing_info.get("num_oov_indices", 0)
+            lookup_layer = torch.tensor(vocab.get(layer.item(), len(vocab)))
+            if preprocessing_type == "embedding":
+                embed = nn.Embedding(len(vocab) + num_oov_indices,
+                                     preprocessing_info["output_dim"])
+                processed_components.append(embed(lookup_layer))
+            elif preprocessing_type == "one_hot":
+                processed_components.append(F.one_hot(lookup_layer, num_classes=len(vocab) + num_oov_indices).float())
+        else:
+            raise ValueError(f"Unsupported preprocessing: parameter type: {data_type}"
+                             f" preprocessing type: {preprocessing_type}")
+
+    # Concatenate all processed components into a single vector
+    return torch.cat(processed_components, dim=-1)
 
 
 class FeatureGenerator():
@@ -112,12 +175,12 @@ class FeatureGenerator():
                 y.append(None)
         return local_features, y
 
-    def transform_z(self, Z):
+    def transform_z(self, Z, params, preprocessing_infos):
         parameter_features = []
 
         for z in Z:
-            # TODO: Implement this function
-            pass
+            parameter_features.append(
+                apply_preprocessing_vector(z, params, preprocessing_infos))
 
         return parameter_features
 
