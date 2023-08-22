@@ -27,6 +27,7 @@ def json_str_to_json_obj(json_data):
     return json_obj
 
 
+
 def apply_preprocessing_vector(vector: torch.Tensor,
                                params: list,
                                preprocessing_infos: list) -> torch.Tensor:
@@ -40,9 +41,9 @@ def apply_preprocessing_vector(vector: torch.Tensor,
         {"data_type": "text", "distinct_values": ["apple", "banana", "cherry"]}
     ]
     preprocessing_infos = [
-        {"type": "one_hot"},
+        {"type": "one_hot", "max_len" : 50},
         {"type": "std_normalization", "mean": 0.0, "variance": 1.0},
-        {"type": "embedding", "output_dim": 5}
+        {"type": "embedding", "output_dim": 5, "max_len" : 50}
     ]
     
     output example

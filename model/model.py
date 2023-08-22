@@ -76,6 +76,61 @@ def left_child(x: SampleEntity):
 def right_child(x: SampleEntity):
     return x.get_right()
 
+class OneHotNN(nn.Module):
+    def __init__(self, num_classes):
+        super(OneHotNN, self).__init__()
+        self.num_classes = num_classes
+    def forward(self, x):
+        # Batch x 1
+        one_hot = torch.zeros(x.size(0), self.num_classes, device=x.device)
+        one_hot.scatter_(1, x,1)
+        return one_hot # Batch x num_classes
+
+class ParamModel(nn.Module):
+    def __init__(self, preprocessing_infos, dim1 = 128, dim2 = 64, dim3 = 32):
+
+        super(ParamModel, self).__init__()
+        
+        layers = []
+        self.length = len(preprocessing_infos)
+        embed_len = 0
+
+        for info in preprocessing_infos:
+            if info["type"] == "one_hot":
+                layers.append(OneHotNN(info['max_len']))
+                embed_len += info['max_len']
+            elif info["type"] == "std_normalization":
+                layers.append(nn.Identity())
+                embed_len += 1
+            elif info["type"] == "embedding":
+                layers.append(nn.Embedding(info["max_len"], info["output_dim"]))
+                embed_len = info['output_dim']
+            else:
+                raise ValueError(f"Unknown preprocessing type: {info['type']}")
+        self.embed_layers = nn.ModuleList(layers)
+        self.embed_len = embed_len
+
+        ll1 = self.linear(embed_len, dim1)
+        ll2 = self.linear(dim1, dim2)
+        ll3 = self.linear(dim2, dim3)
+
+    def forward(self, x):
+        ## x.shape : Batch x len(preprocessing_infos)
+
+        x_l = torch.split(x, 1, dim = -1) # list of Batch x 1
+        embedded = []
+        for x_i, e in zip(x_l, self.embed_layers):
+            if not isinstance(e, nn.Identity):
+                embedded.append(e(x_i).long())
+            else:
+                embedded.append(e(x_i))
+        
+        embedded = torch.concat(embedded, -1)
+        y = ll1(embedded)
+        y = ll2(y)
+        y = ll3(y)   
+        # Batch x dim3     
+        return y
 
 class PlanEmbeddingNet(nn.Module):
     def __init__(self, input_feature_dim) -> None:
