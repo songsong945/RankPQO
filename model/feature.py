@@ -44,7 +44,12 @@ def apply_preprocessing_vector(vector: torch.Tensor,
         {"type": "std_normalization", "mean": 0.0, "variance": 1.0},
         {"type": "embedding", "output_dim": 5}
     ]
+    
+    output example
+    np.array([25, 0.6, 0])
+
     """
+
 
 
     processed_components = []
@@ -61,30 +66,39 @@ def apply_preprocessing_vector(vector: torch.Tensor,
 
         elif data_type == "int":
             shifted_layer = layer - param["min"]
-            if preprocessing_type == "embedding":
-                embed = nn.Embedding(param["max"] - param["min"] + 1,
-                                     preprocessing_info["output_dim"])
-                processed_components.append(embed(shifted_layer.long()))
-            elif preprocessing_type == "one_hot":
-                processed_components.append(
-                    F.one_hot(shifted_layer.long(), num_classes=param["max"] - param["min"] + 1).float())
+            processed_components.append(shifted_layer)
+            # if preprocessing_type == "embedding":
+            #     embed = nn.Embedding(param["max"] - param["min"] + 1,
+            #                          preprocessing_info["output_dim"])
+            #     processed_components.append(embed(shifted_layer.long()))
+            # elif preprocessing_type == "one_hot":
+            #     processed_components.append(
+            #         F.one_hot(shifted_layer.long(), num_classes=param["max"] - param["min"] + 1).float())
 
         elif data_type == "text":
             vocab = {word: idx for idx, word in enumerate(param["distinct_values"])}
             num_oov_indices = preprocessing_info.get("num_oov_indices", 0)
-            lookup_layer = torch.tensor(vocab.get(layer.item(), len(vocab)))
-            if preprocessing_type == "embedding":
-                embed = nn.Embedding(len(vocab) + num_oov_indices,
-                                     preprocessing_info["output_dim"])
-                processed_components.append(embed(lookup_layer))
-            elif preprocessing_type == "one_hot":
-                processed_components.append(F.one_hot(lookup_layer, num_classes=len(vocab) + num_oov_indices).float())
+            lookup_layer = vocab.get(layer.item(), len(vocab))
+            processed_components.append(shifted_layer)
+            # lookup_layer = torch.tensor(vocab.get(layer.item(), len(vocab)))
+            # if preprocessing_type == "embedding":
+            #     embed = nn.Embedding(len(vocab) + num_oov_indices,
+            #                          preprocessing_info["output_dim"])
+            #     processed_components.append(embed(lookup_layer))
+            # elif preprocessing_type == "one_hot":
+            #     processed_components.append(F.one_hot(lookup_layer, num_classes=len(vocab) + num_oov_indices).float())
         else:
             raise ValueError(f"Unsupported preprocessing: parameter type: {data_type}"
                              f" preprocessing type: {preprocessing_type}")
 
+
+
+    ## Modified by zy, return the index of embedding/one-hot
+    ## instead of the full vector  
+
     # Concatenate all processed components into a single vector
-    return torch.cat(processed_components, dim=-1)
+    return np.numpy(processed_components)
+    # return torch.cat(processed_components, dim=-1)
 
 
 class FeatureGenerator():
