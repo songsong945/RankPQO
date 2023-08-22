@@ -116,12 +116,12 @@ class ParamModel(nn.Module):
 
     def forward(self, x):
         ## x.shape : Batch x len(preprocessing_infos)
-
+        batch_size = x.size(0)
         x_l = torch.split(x, 1, dim = -1) # list of Batch x 1
         embedded = []
         for x_i, e in zip(x_l, self.embed_layers):
             if not isinstance(e, nn.Identity):
-                embedded.append(e(x_i).long())
+                embedded.append(e(x_i).long()).view(batch_size,-1)
             else:
                 embedded.append(e(x_i))
         
