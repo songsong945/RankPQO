@@ -1,45 +1,116 @@
 import argparse
 import json
+import os
 
 from feature import FeatureGenerator
 from model import RankPQOModel
 
 
-def get_training_parameter(parameters):
+def _param_path(base):
+    return os.path.join(base, "parameters.json")
 
 
+def _cost_path(base):
+    return os.path.join(base, "cost_matrix.json")
 
-def get_training_pair(candidates):
-    assert len(candidates) >= 2
-    X1, X2 = [], []
+
+def _meta_path(base):
+    return os.path.join(base, "meta_data.json")
+
+
+def _plan_path(base):
+    return os.path.join(base, "plans.json")
+
+
+def get_param_info(meta):
+    params, preprocess_info = [], []
+
+    for data in meta["predicates"]:
+        param_data = {}
+        preprocess_info_data = {}
+
+        if data["data_type"] in ["int", "float", "text"]:
+            param_data["data_type"] = data["data_type"]
+
+            if data["data_type"] == "int" and "min" in data and "max" in data:
+                param_data["min"] = data["min"]
+                param_data["max"] = data["max"]
+
+            if data["data_type"] == "text" and "distinct_values" in data:
+                param_data["distinct_values"] = data["distinct_values"]
+
+            params.append(param_data)
+
+        if data["type"] in ["one_hot", "std_normalization", "embedding"]:
+            preprocess_info_data["type"] = data["type"]
+
+            if data["type"] == "one_hot" and "max_len" in data:
+                preprocess_info_data["max_len"] = data["max_len"]
+
+            if data["type"] == "std_normalization" and "mean" in data and "variance" in data:
+                preprocess_info_data["mean"] = data["mean"]
+                preprocess_info_data["variance"] = data["variance"]
+
+            if data["type"] == "embedding" and "output_dim" in data and "max_len" in data:
+                preprocess_info_data["output_dim"] = data["output_dim"]
+                preprocess_info_data["max_len"] = data["max_len"]
+
+            preprocess_info.append(preprocess_info_data)
+
+    return params, preprocess_info
+
+
+def get_training_pair(candidate_plan, plan, param_key, cost):
+    assert len(candidate_plan) >= 2
+    X1, X2, Y1, Y2 = [], [], [], []
 
     i = 0
-    while i < len(candidates) - 1:
-        s1 = candidates[i]
+    while i < len(candidate_plan) - 1:
+        s1 = candidate_plan[i]
         j = i + 1
-        while j < len(candidates):
-            s2 = candidates[j]
-            X1.append(s1)
-            X2.append(s2)
+        while j < len(candidate_plan):
+            s2 = candidate_plan[j]
+            X1.append(plan[s1])
+            Y1.append(cost[param_key][s1])
+            X2.append(plan[s2])
+            Y2.append(cost[param_key][s2])
             j += 1
         i += 1
-    return X1, X2
+    return X1, X2, Y1, Y2
 
 
-def _load_pairwise_plans(path):
-    Z, X1, X2 = [], [], []
-    with open(path, 'r') as f:
-        for line in f.readlines():
-            arr = line.split("#####")
-            z = get_training_parameter(arr[0])
-            x1, x2 = get_training_pair(arr[1:])
-            X1 += x1
-            X2 += x2
-    return X1, X2
+def _load_training_data(training_data_file, template_id):
+    path = os.path.join(training_data_file, template_id)
+    Z, X1, X2, Y1, Y2, params, preprocess_info = [], [], [], [], [], [], []
+
+    with open(_param_path(path), 'r') as f:
+        param = json.load(f)
+
+    with open(_cost_path(path), 'r') as f:
+        cost = json.load(f)
+
+    with open(_meta_path(path), 'r') as f:
+        meta = json.load(f)
+
+    with open(_plan_path(path), 'r') as f:
+        plan = json.load(f)
+
+    for param_key, param_values in param.items():
+        candidate_plan = list(cost[param_key].keys())
+        x1, x2, y1, y2 = get_training_pair(candidate_plan, plan, param_key, cost)
+        Z += [list(param_values) for _ in range(len(x1))]
+        X1 += x1
+        X2 += x2
+        Y1 += y1
+        Y2 += y2
+
+    params, preprocess_info = get_param_info(meta)
+
+    return Z, X1, X2, Y1, Y2, params, preprocess_info
 
 
-def training_pairwise(training_data_file, model_path, template_id, pre_train):
-    Z, X1, X2 = _load_pairwise_plans(training_data_file)
+def training_pairwise(training_data_file, model_path, template_id):
+    Z, X1, X2, Y1, Y2, params, preprocess_info = _load_training_data(training_data_file, template_id)
 
     tuning_model = model_path is not None
     rank_PQO_model = None
@@ -51,17 +122,9 @@ def training_pairwise(training_data_file, model_path, template_id, pre_train):
         feature_generator = FeatureGenerator()
         feature_generator.fit(X1 + X2)
 
-    Y1, Y2 = None, None
-    if pre_train:
-        Y1 = [json.loads(c)[0]['Plan']['Total Cost'] for c in X1]
-        Y2 = [json.loads(c)[0]['Plan']['Total Cost'] for c in X2]
-        X1, _ = feature_generator.transform(X1)
-        X2, _ = feature_generator.transform(X2)
-        Z = feature_generator.transform_z(Z)
-    else:
-        X1, Y1 = feature_generator.transform(X1)
-        X2, Y2 = feature_generator.transform(X2)
-        Z = feature_generator.transform_z(Z)
+    X1 = feature_generator.transform(X1)
+    X2 = feature_generator.transform(X2)
+    Z = feature_generator.transform_z(Z)
     print("Training data set size = " + str(len(X1)))
 
     if not tuning_model:

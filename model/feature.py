@@ -170,9 +170,28 @@ class FeatureGenerator():
                  "Total Cost": total_costs_max, "Plan Rows": rows_max})
         self.feature_parser = AnalyzeJsonParser(self.normalizer, list(input_relations))
 
+    # def transform(self, trees):
+    #     local_features = []
+    #     y = []
+    #     for tree in trees:
+    #         json_obj = json_str_to_json_obj(tree)
+    #         if type(json_obj["Plan"]) != dict:
+    #             json_obj["Plan"] = json.loads(json_obj["Plan"])
+    #         local_feature = self.feature_parser.extract_feature(
+    #             json_obj["Plan"])
+    #         local_features.append(local_feature)
+    #
+    #         if "Execution Time" in json_obj:
+    #             label = float(json_obj["Execution Time"])
+    #             if self.normalizer.contains("Execution Time"):
+    #                 label = self.normalizer.norm(label, "Execution Time")
+    #             y.append(label)
+    #         else:
+    #             y.append(None)
+    #     return local_features, y
+
     def transform(self, trees):
         local_features = []
-        y = []
         for tree in trees:
             json_obj = json_str_to_json_obj(tree)
             if type(json_obj["Plan"]) != dict:
@@ -181,14 +200,8 @@ class FeatureGenerator():
                 json_obj["Plan"])
             local_features.append(local_feature)
 
-            if "Execution Time" in json_obj:
-                label = float(json_obj["Execution Time"])
-                if self.normalizer.contains("Execution Time"):
-                    label = self.normalizer.norm(label, "Execution Time")
-                y.append(label)
-            else:
-                y.append(None)
-        return local_features, y
+        return local_features
+
 
     def transform_z(self, Z, params, preprocessing_infos):
         parameter_features = []
