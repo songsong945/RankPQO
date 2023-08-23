@@ -22,6 +22,7 @@ device = torch.device("cuda:0" if CUDA else "cpu")
 
 Template_DIM = []
 
+
 def _nn_path(base):
     return os.path.join(base, "nn_weights")
 
@@ -75,15 +76,18 @@ def left_child(x: SampleEntity):
 def right_child(x: SampleEntity):
     return x.get_right()
 
+
 class OneHotNN(nn.Module):
     def __init__(self, num_classes):
         super(OneHotNN, self).__init__()
         self.num_classes = num_classes
+
     def forward(self, x):
         # Batch x 1
         one_hot = torch.zeros(x.size(0), self.num_classes, device=x.device)
-        one_hot.scatter_(1, x,1)
-        return one_hot # Batch x num_classes
+        one_hot.scatter_(1, x, 1)
+        return one_hot  # Batch x num_classes
+
 
 class PlanEmbeddingNet(nn.Module):
     def __init__(self, input_feature_dim) -> None:
@@ -117,17 +121,6 @@ class PlanEmbeddingNet(nn.Module):
         return super().cuda()
 
 
-
-class ParamModel(nn.Module):
-    def __init__(self, preprocessing_infos, dim1 = 128, dim2 = 64, dim3 = 32):
-
-        super(ParamModel, self).__init__()
-
-
-        ll1 = self.linear(embed_len, dim1)
-        ll2 = self.linear(dim1, dim2)
-        ll3 = self.linear(dim2, dim3)
-
 class ParameterEmbeddingNet(nn.Module):
     def __init__(self, template_id, preprocessing_infos):
         super(ParameterEmbeddingNet, self).__init__()
@@ -135,7 +128,7 @@ class ParameterEmbeddingNet(nn.Module):
         self.id = template_id
         # input_dim = Template_DIM[template_id]
         # Layers
-        
+
         layers = []
         self.length = len(preprocessing_infos)
         embed_len = 0
@@ -162,14 +155,14 @@ class ParameterEmbeddingNet(nn.Module):
     def forward(self, x):
         ## x.shape : Batch x len(preprocessing_infos)
         batch_size = x.size(0)
-        x_l = torch.split(x, 1, dim = -1) # list of Batch x 1
+        x_l = torch.split(x, 1, dim=-1)  # list of Batch x 1
         embedded = []
         for x_i, e in zip(x_l, self.embed_layers):
             if not isinstance(e, nn.Identity):
-                embedded.append(e(x_i).long()).view(batch_size,-1)
+                embedded.append(e(x_i).long()).view(batch_size, -1)
             else:
                 embedded.append(e(x_i))
-        
+
         embedded = torch.concat(embedded, -1)
 
         x = F.relu(self.fc1(embedded))
