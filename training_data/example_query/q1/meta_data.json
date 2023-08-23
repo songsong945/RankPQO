@@ -1,0 +1,31 @@
+{
+  "template_id": "q0",
+  "template": "SELECT t.title, cn.name AS character_name, ci.person_id, k.keyword\nFROM title t, cast_info ci, char_name cn, movie_keyword mk, keyword k\nWHERE t.id = ci.movie_id\nAND ci.person_role_id = cn.id\nAND t.id = mk.movie_id\nAND mk.keyword_id = k.id\nAND t.production_year > {}\nAND cn.name LIKE {}\nAND k.keyword LIKE {};",
+  "predicates": [
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "min": 1980,
+            "max": 2023,
+            "preprocess_type":"one_hot"
+        },
+        {
+            "alias": "cn",
+            "column": "name",
+            "operator": "like",
+            "data_type": "text",
+            "distinct_values": ["%John%", "%smith%", "%Sandy%"],
+            "preprocess_type":"embedding"
+        },
+        {
+            "alias": "k",
+            "column": "k.keyword",
+            "operator": "like",
+            "data_type": "text",
+            "distinct_values": ["%love%", "%hate%", "%revenge%", "%happy%"],
+            "preprocess_type":"embedding"
+        }
+    ]
+}

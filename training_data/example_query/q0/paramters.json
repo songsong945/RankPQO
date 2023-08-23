@@ -1,0 +1,11 @@
+{
+    "parameter 1": [
+        "2014", "%John%"
+    ],
+    "parameter 2": [
+        "2013", "%smith%"
+    ],
+    "parameter 3": [
+        "2013", "%John%"
+    ]
+}
