@@ -5,6 +5,10 @@ from feature import FeatureGenerator
 from model import RankPQOModel
 
 
+def get_training_parameter(parameters):
+
+
+
 def get_training_pair(candidates):
     assert len(candidates) >= 2
     X1, X2 = [], []
@@ -23,18 +27,19 @@ def get_training_pair(candidates):
 
 
 def _load_pairwise_plans(path):
-    X1, X2 = [], []
+    Z, X1, X2 = [], [], []
     with open(path, 'r') as f:
         for line in f.readlines():
             arr = line.split("#####")
-            x1, x2 = get_training_pair(arr)
+            z = get_training_parameter(arr[0])
+            x1, x2 = get_training_pair(arr[1:])
             X1 += x1
             X2 += x2
     return X1, X2
 
 
 def training_pairwise(training_data_file, model_path, template_id, pre_train):
-    X1, X2, Z = _load_pairwise_plans(training_data_file)
+    Z, X1, X2 = _load_pairwise_plans(training_data_file)
 
     tuning_model = model_path is not None
     rank_PQO_model = None
