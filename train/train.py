@@ -124,7 +124,7 @@ def training_pairwise(training_data_file, model_path, template_id):
 
     X1 = feature_generator.transform(X1)
     X2 = feature_generator.transform(X2)
-    Z = feature_generator.transform_z(Z)
+    Z = feature_generator.transform_z(Z, params, preprocess_info)
     print("Training data set size = " + str(len(X1)))
 
     if not tuning_model:

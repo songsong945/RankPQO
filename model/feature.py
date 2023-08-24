@@ -202,7 +202,6 @@ class FeatureGenerator():
 
         return local_features
 
-
     def transform_z(self, Z, params, preprocessing_infos):
         parameter_features = []
 
