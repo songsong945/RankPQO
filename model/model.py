@@ -15,7 +15,7 @@ from TreeConvolution.tcnn import (BinaryTreeConv, DynamicPooling,
 from TreeConvolution.util import prepare_trees
 
 CUDA = torch.cuda.is_available()
-GPU_LIST = [0, 1]
+GPU_LIST = [0]
 
 torch.set_default_tensor_type(torch.DoubleTensor)
 device = torch.device("cuda:0" if CUDA else "cpu")
@@ -172,13 +172,13 @@ class ParameterEmbeddingNet(nn.Module):
 
 
 class RankPQOModel():
-    def __init__(self, feature_generator, template_id) -> None:
-        super(self).__init__()
+    def __init__(self, feature_generator, template_id, preprocessing_infos) -> None:
+        super(RankPQOModel, self).__init__()
         self._feature_generator = feature_generator
         self._input_feature_dim = None
         self._model_parallel = None
         self._template_id = template_id
-        self._parameter_input_dim = Template_DIM[template_id]
+        self.preprocessing_infos = preprocessing_infos
 
     def load(self, path):
         with open(_input_feature_dim_path(path), "rb") as f:
@@ -192,7 +192,7 @@ class RankPQOModel():
                 _nn_path(path), map_location=torch.device('cpu')))
         self.plan_net.eval()
 
-        self.parameter_net = ParameterEmbeddingNet(self._parameter_input_dim)
+        self.parameter_net = ParameterEmbeddingNet(self.preprocessing_infos)
         if CUDA:
             self.parameter_net.load_state_dict(torch.load(_fnn_path(path, self._template_id)))
         else:
@@ -212,9 +212,9 @@ class RankPQOModel():
             torch.save(self.plan_net.state_dict(), _nn_path(path))
 
         if CUDA:
-            torch.save(self.parameter_net.module.state_dict(), _fnn_path(path, self._template_id))
+            torch.save(self.parameter_net.module.state_dict(), _fnn_path(path, self.preprocessing_infos))
         else:
-            torch.save(self.parameter_net.state_dict(), _fnn_path(path, self._template_id))
+            torch.save(self.parameter_net.state_dict(), _fnn_path(path, self.preprocessing_infos))
 
         with open(_feature_generator_path(path), "wb") as f:
             joblib.dump(self._feature_generator, f)
@@ -237,7 +237,7 @@ class RankPQOModel():
 
             self.plan_net = PlanEmbeddingNet(input_feature_dim)
             self._input_feature_dim = input_feature_dim
-            self.parameter_net = PlanEmbeddingNet(self._template_id)
+            self.parameter_net = ParameterEmbeddingNet(self.template_id, self.preprocessing_infos)
             if CUDA:
                 self.plan_net = self.plan_net.cuda(device)
                 self.plan_net = torch.nn.DataParallel(

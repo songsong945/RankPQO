@@ -28,7 +28,7 @@ def json_str_to_json_obj(json_data):
 
 
 
-def apply_preprocessing_vector(vector: torch.Tensor,
+def apply_preprocessing_vector(vector: list,
                                params: list,
                                preprocessing_infos: list) -> torch.Tensor:
     """Generates a preprocessed vector for a given parameter input.
@@ -51,22 +51,18 @@ def apply_preprocessing_vector(vector: torch.Tensor,
 
     """
 
-
-
     processed_components = []
-
+    vector = list(zip(*vector))
     for i, (param, preprocessing_info) in enumerate(zip(params, preprocessing_infos)):
         data_type = param["data_type"]
         preprocessing_type = preprocessing_info["type"]
         layer = vector[i]
-
         if data_type == "float" and preprocessing_type == "std_normalization":
             mean = preprocessing_info["mean"]
             std = torch.sqrt(preprocessing_info["variance"])
-            processed_components.append((layer - mean) / std)
-
+            processed_components.append((np.array(layer).astype(int) - mean) / std)
         elif data_type == "int":
-            shifted_layer = layer - param["min"]
+            shifted_layer = np.array(layer).astype(int) - param["min"]
             processed_components.append(shifted_layer)
             # if preprocessing_type == "embedding":
             #     embed = nn.Embedding(param["max"] - param["min"] + 1,
@@ -79,8 +75,8 @@ def apply_preprocessing_vector(vector: torch.Tensor,
         elif data_type == "text":
             vocab = {word: idx for idx, word in enumerate(param["distinct_values"])}
             num_oov_indices = preprocessing_info.get("num_oov_indices", 0)
-            lookup_layer = vocab.get(layer.item(), len(vocab))
-            processed_components.append(shifted_layer)
+            lookup_layer = np.array([vocab.get(la, len(vocab)) for la in layer])
+            processed_components.append(lookup_layer)
             # lookup_layer = torch.tensor(vocab.get(layer.item(), len(vocab)))
             # if preprocessing_type == "embedding":
             #     embed = nn.Embedding(len(vocab) + num_oov_indices,
@@ -98,7 +94,7 @@ def apply_preprocessing_vector(vector: torch.Tensor,
     ## instead of the full vector  
 
     # Concatenate all processed components into a single vector
-    return np.numpy(processed_components)
+    return np.array(processed_components)
     # return torch.cat(processed_components, dim=-1)
 
 
@@ -130,7 +126,8 @@ class FeatureGenerator():
                     recurse(child)
 
         for tree in trees:
-            json_obj = json_str_to_json_obj(tree)
+            # json_obj = json_str_to_json_obj(tree)
+            json_obj = tree
             if "Execution Time" in json_obj:
                 exec_times.append(float(json_obj["Execution Time"]))
             recurse(json_obj["Plan"])
@@ -193,7 +190,8 @@ class FeatureGenerator():
     def transform(self, trees):
         local_features = []
         for tree in trees:
-            json_obj = json_str_to_json_obj(tree)
+            # json_obj = json_str_to_json_obj(tree)
+            json_obj = tree
             if type(json_obj["Plan"]) != dict:
                 json_obj["Plan"] = json.loads(json_obj["Plan"])
             local_feature = self.feature_parser.extract_feature(
@@ -203,13 +201,8 @@ class FeatureGenerator():
         return local_features
 
     def transform_z(self, Z, params, preprocessing_infos):
-        parameter_features = []
+        return apply_preprocessing_vector(Z, params, preprocessing_infos)
 
-        for z in Z:
-            parameter_features.append(
-                apply_preprocessing_vector(z, params, preprocessing_infos))
-
-        return parameter_features
 
 
 class SampleEntity():
