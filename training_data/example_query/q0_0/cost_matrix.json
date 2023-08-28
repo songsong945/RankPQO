@@ -1,0 +1,6 @@
+{
+    "parameter 1": {"plan 1": 1, "plan 2": 2, "plan 3": 3},
+    "parameter 2": {"plan 1": 4, "plan 2": 5, "plan 3": 6},
+    "parameter 3": {"plan 1": 7, "plan 2": 8, "plan 3": 9}
+}
+

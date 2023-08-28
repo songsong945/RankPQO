@@ -1,0 +1,41 @@
+{
+    "template_id": "5b",
+    "template": "SELECT MIN(t.title) AS american_vhs_movie\nFROM company_type AS ct,\n     info_type AS it,\n     movie_companies AS mc,\n     movie_info AS mi,\n     title AS t\nWHERE ct.kind = {}\n  AND mc.note LIKE {}\n  AND mc.note LIKE {}\n  AND mc.note LIKE {}\n  AND mi.info IN ('USA',\n                  'America')\n  AND t.production_year > {}\n  AND t.id = mi.movie_id\n  AND t.id = mc.movie_id\n  AND mc.movie_id = mi.movie_id\n  AND ct.id = mc.company_type_id\n  AND it.id = mi.info_type_id;\n\n",
+    "predicates": [
+        {
+            "alias": "ct",
+            "column": "ct.kind",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "preprocess_type": "one_hot"
+        }
+    ]
+}

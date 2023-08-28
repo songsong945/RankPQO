@@ -1,0 +1,69 @@
+{
+    "template_id": "31b",
+    "template": "SELECT MIN(mi.info) AS movie_budget,\n       MIN(mi_idx.info) AS movie_votes,\n       MIN(n.name) AS writer,\n       MIN(t.title) AS violent_liongate_movie\nFROM cast_info AS ci,\n     company_name AS cn,\n     info_type AS it1,\n     info_type AS it2,\n     keyword AS k,\n     movie_companies AS mc,\n     movie_info AS mi,\n     movie_info_idx AS mi_idx,\n     movie_keyword AS mk,\n     name AS n,\n     title AS t\nWHERE ci.note IN ('(writer)',\n                  '(head writer)',\n                  '(written by)',\n                  '(story)',\n                  '(story editor)')\n  AND cn.name LIKE {}\n  AND it1.info = {}\n  AND it2.info = {}\n  AND k.keyword IN ('murder',\n                    'violence',\n                    'blood',\n                    'gore',\n                    'death',\n                    'female-nudity',\n                    'hospital')\n  AND mc.note LIKE {}\n  AND mi.info IN ('Horror',\n                  'Thriller')\n  AND n.gender = {}\n  AND t.production_year > {}\n  AND (t.title LIKE {}\n       OR t.title LIKE {}\n       OR t.title LIKE {})\n  AND t.id = mi.movie_id\n  AND t.id = mi_idx.movie_id\n  AND t.id = ci.movie_id\n  AND t.id = mk.movie_id\n  AND t.id = mc.movie_id\n  AND ci.movie_id = mi.movie_id\n  AND ci.movie_id = mi_idx.movie_id\n  AND ci.movie_id = mk.movie_id\n  AND ci.movie_id = mc.movie_id\n  AND mi.movie_id = mi_idx.movie_id\n  AND mi.movie_id = mk.movie_id\n  AND mi.movie_id = mc.movie_id\n  AND mi_idx.movie_id = mk.movie_id\n  AND mi_idx.movie_id = mc.movie_id\n  AND mk.movie_id = mc.movie_id\n  AND n.id = ci.person_id\n  AND it1.id = mi.info_type_id\n  AND it2.id = mi_idx.info_type_id\n  AND k.id = mk.keyword_id\n  AND cn.id = mc.company_id;\n\n",
+    "predicates": [
+        {
+            "alias": "cn",
+            "column": "cn.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it1",
+            "column": "it1.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it2",
+            "column": "it2.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.gender",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "preprocess_type": "one_hot"
+        },
+        {
+            "alias": "t",
+            "column": "t.title",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.title",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.title",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}

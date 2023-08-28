@@ -1,0 +1,27 @@
+{
+    "template_id": "6c",
+    "template": "SELECT MIN(k.keyword) AS movie_keyword,\n       MIN(n.name) AS actor_name,\n       MIN(t.title) AS marvel_movie\nFROM cast_info AS ci,\n     keyword AS k,\n     movie_keyword AS mk,\n     name AS n,\n     title AS t\nWHERE k.keyword = {}\n  AND n.name LIKE {}\n  AND t.production_year > {}\n  AND k.id = mk.keyword_id\n  AND t.id = mk.movie_id\n  AND t.id = ci.movie_id\n  AND ci.movie_id = mk.movie_id\n  AND n.id = ci.person_id;\n\n",
+    "predicates": [
+        {
+            "alias": "k",
+            "column": "k.keyword",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "preprocess_type": "one_hot"
+        }
+    ]
+}

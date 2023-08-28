@@ -1,0 +1,5 @@
+host = "localhost"
+port = "5432"
+dbname = "imdb"
+user = "postgres"
+password = ""

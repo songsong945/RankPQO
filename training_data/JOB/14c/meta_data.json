@@ -1,0 +1,34 @@
+{
+    "template_id": "14c",
+    "template": "SELECT MIN(mi_idx.info) AS rating,\n       MIN(t.title) AS north_european_dark_production\nFROM info_type AS it1,\n     info_type AS it2,\n     keyword AS k,\n     kind_type AS kt,\n     movie_info AS mi,\n     movie_info_idx AS mi_idx,\n     movie_keyword AS mk,\n     title AS t\nWHERE it1.info = {}\n  AND it2.info = {}\n  AND k.keyword IS NOT NULL\n  AND k.keyword IN ('murder',\n                    'murder-in-title',\n                    'blood',\n                    'violence')\n  AND kt.kind IN ('movie',\n                  'episode')\n  AND mi.info IN ('Sweden',\n                  'Norway',\n                  'Germany',\n                  'Denmark',\n                  'Swedish',\n                  'Danish',\n                  'Norwegian',\n                  'German',\n                  'USA',\n                  'American')\n  AND mi_idx.info < {}\n  AND t.production_year > {}\n  AND kt.id = t.kind_id\n  AND t.id = mi.movie_id\n  AND t.id = mk.movie_id\n  AND t.id = mi_idx.movie_id\n  AND mk.movie_id = mi.movie_id\n  AND mk.movie_id = mi_idx.movie_id\n  AND mi.movie_id = mi_idx.movie_id\n  AND k.id = mk.keyword_id\n  AND it1.id = mi.info_type_id\n  AND it2.id = mi_idx.info_type_id;\n\n",
+    "predicates": [
+        {
+            "alias": "it1",
+            "column": "it1.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it2",
+            "column": "it2.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mi_idx",
+            "column": "mi_idx.info",
+            "operator": "<",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "preprocess_type": "one_hot"
+        }
+    ]
+}

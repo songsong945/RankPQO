@@ -1,0 +1,13 @@
+{
+    "template_id": "32b",
+    "template": "SELECT MIN(lt.link) AS link_type,\n       MIN(t1.title) AS first_movie,\n       MIN(t2.title) AS second_movie\nFROM keyword AS k,\n     link_type AS lt,\n     movie_keyword AS mk,\n     movie_link AS ml,\n     title AS t1,\n     title AS t2\nWHERE k.keyword ={}\n  AND mk.keyword_id = k.id\n  AND t1.id = mk.movie_id\n  AND ml.movie_id = t1.id\n  AND ml.linked_movie_id = t2.id\n  AND lt.id = ml.link_type_id\n  AND mk.movie_id = t1.id;\n\n",
+    "predicates": [
+        {
+            "alias": "k",
+            "column": "k.keyword",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}

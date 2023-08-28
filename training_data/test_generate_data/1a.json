@@ -1,0 +1,41 @@
+{
+    "template_id": "q1",
+    "template": "SELECT MIN(mc.note) AS production_note,\n       MIN(t.title) AS movie_title,\n       MIN(t.production_year) AS movie_year\nFROM company_type AS ct,\n     info_type AS it,\n     movie_companies AS mc,\n     movie_info_idx AS mi_idx,\n     title AS t\nWHERE ct.kind = {}\n  AND it.info = {}\n  AND mc.note NOT LIKE {}\n  AND (mc.note LIKE {}\n       OR mc.note LIKE {})\n  AND ct.id = mc.company_type_id\n  AND t.id = mc.movie_id\n  AND t.id = mi_idx.movie_id\n  AND mc.movie_id = mi_idx.movie_id\n  AND it.id = mi_idx.info_type_id;\n\n",
+    "predicates": [
+        {
+            "alias": "ct",
+            "column": "ct.kind",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it",
+            "column": "it.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "not like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}

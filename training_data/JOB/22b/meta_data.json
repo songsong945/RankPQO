@@ -1,0 +1,48 @@
+{
+    "template_id": "22b",
+    "template": "SELECT MIN(cn.name) AS movie_company,\n       MIN(mi_idx.info) AS rating,\n       MIN(t.title) AS western_violent_movie\nFROM company_name AS cn,\n     company_type AS ct,\n     info_type AS it1,\n     info_type AS it2,\n     keyword AS k,\n     kind_type AS kt,\n     movie_companies AS mc,\n     movie_info AS mi,\n     movie_info_idx AS mi_idx,\n     movie_keyword AS mk,\n     title AS t\nWHERE cn.country_code != '[us]'\n  AND it1.info = {}\n  AND it2.info = {}\n  AND k.keyword IN ('murder',\n                    'murder-in-title',\n                    'blood',\n                    'violence')\n  AND kt.kind IN ('movie',\n                  'episode')\n  AND mc.note NOT LIKE {}\n  AND mc.note LIKE {}\n  AND mi.info IN ('Germany',\n                  'German',\n                  'USA',\n                  'American')\n  AND mi_idx.info < {}\n  AND t.production_year > {}\n  AND kt.id = t.kind_id\n  AND t.id = mi.movie_id\n  AND t.id = mk.movie_id\n  AND t.id = mi_idx.movie_id\n  AND t.id = mc.movie_id\n  AND mk.movie_id = mi.movie_id\n  AND mk.movie_id = mi_idx.movie_id\n  AND mk.movie_id = mc.movie_id\n  AND mi.movie_id = mi_idx.movie_id\n  AND mi.movie_id = mc.movie_id\n  AND mc.movie_id = mi_idx.movie_id\n  AND k.id = mk.keyword_id\n  AND it1.id = mi.info_type_id\n  AND it2.id = mi_idx.info_type_id\n  AND ct.id = mc.company_type_id\n  AND cn.id = mc.company_id;\n\n",
+    "predicates": [
+        {
+            "alias": "it1",
+            "column": "it1.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it2",
+            "column": "it2.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "not like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mi_idx",
+            "column": "mi_idx.info",
+            "operator": "<",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "preprocess_type": "one_hot"
+        }
+    ]
+}

@@ -1,0 +1,20 @@
+{
+    "template_id": "17c",
+    "template": "SELECT MIN(n.name) AS member_in_charnamed_movie,\n       MIN(n.name) AS a1\nFROM cast_info AS ci,\n     company_name AS cn,\n     keyword AS k,\n     movie_companies AS mc,\n     movie_keyword AS mk,\n     name AS n,\n     title AS t\nWHERE k.keyword ={}\n  AND n.name LIKE {}\n  AND n.id = ci.person_id\n  AND ci.movie_id = t.id\n  AND t.id = mk.movie_id\n  AND mk.keyword_id = k.id\n  AND t.id = mc.movie_id\n  AND mc.company_id = cn.id\n  AND ci.movie_id = mc.movie_id\n  AND ci.movie_id = mk.movie_id\n  AND mc.movie_id = mk.movie_id;\n\n",
+    "predicates": [
+        {
+            "alias": "k",
+            "column": "k.keyword",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}

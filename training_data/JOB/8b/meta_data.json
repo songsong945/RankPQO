@@ -1,0 +1,83 @@
+{
+    "template_id": "8b",
+    "template": "SELECT MIN(an.name) AS acress_pseudonym,\n       MIN(t.title) AS japanese_anime_movie\nFROM aka_name AS an,\n     cast_info AS ci,\n     company_name AS cn,\n     movie_companies AS mc,\n     name AS n,\n     role_type AS rt,\n     title AS t\nWHERE ci.note ={}\n  AND cn.country_code ={}\n  AND mc.note LIKE {}\n  AND mc.note NOT LIKE {}\n  AND (mc.note LIKE {}\n       OR mc.note LIKE {})\n  AND n.name LIKE {}\n  AND n.name NOT LIKE {}\n  AND rt.role ={}\n  AND t.production_year BETWEEN 2006 AND 2007\n  AND (t.title LIKE {}\n       OR t.title LIKE {})\n  AND an.person_id = n.id\n  AND n.id = ci.person_id\n  AND ci.movie_id = t.id\n  AND t.id = mc.movie_id\n  AND mc.company_id = cn.id\n  AND ci.role_id = rt.id\n  AND an.person_id = ci.person_id\n  AND ci.movie_id = mc.movie_id;\n\n",
+    "predicates": [
+        {
+            "alias": "ci",
+            "column": "ci.note",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "cn",
+            "column": "cn.country_code",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "not like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mc",
+            "column": "mc.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.name",
+            "operator": "not like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "rt",
+            "column": "rt.role",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.title",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.title",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}

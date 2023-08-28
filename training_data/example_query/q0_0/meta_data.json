@@ -1,0 +1,56 @@
+{
+  "template_id": "",
+  "template": "",
+  "predicates": [
+        {
+            "alias": "s",
+            "column": "name",
+            "operator": "=",
+            "data_type": "text",
+            "distinct_values": ["a", "b", "c", "d", "e", "f"]
+        },
+        {
+            "alias": "t",
+            "column": "name",
+            "operator": "=",
+            "data_type": "text",
+            "distinct_values": ["aa", "bb", "cc", "dd", "ee"]
+        },
+        {
+            "alias": "q",
+            "column": "score",
+            "operator": ">",
+            "data_type": "float"
+        },
+        {
+            "alias": "q",
+            "column": "view_count",
+            "operator": "<",
+            "data_type": "int",
+            "min": -5,
+            "max": 27
+        },
+        {
+            "alias": "q",
+            "column": "upvotes",
+            "operator": "<",
+            "data_type": "int",
+            "min": 0,
+            "max": 20
+        },
+        {
+            "alias": "b",
+            "column": "name",
+            "operator": "=",
+            "data_type": "text",
+            "distinct_values": ["a", "b", "c"]
+        },
+        {
+            "alias": "b",
+            "column": "name",
+            "operator": "=",
+            "data_type": "float",
+            "preprocess_type": "to_timestamp"
+        }
+    ]
+}

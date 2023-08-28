@@ -1,0 +1,90 @@
+{
+    "template_id": "29b",
+    "template": "SELECT MIN(chn.name) AS voiced_char,\n       MIN(n.name) AS voicing_actress,\n       MIN(t.title) AS voiced_animation\nFROM aka_name AS an,\n     complete_cast AS cc,\n     comp_cast_type AS cct1,\n     comp_cast_type AS cct2,\n     char_name AS chn,\n     cast_info AS ci,\n     company_name AS cn,\n     info_type AS it,\n     info_type AS it3,\n     keyword AS k,\n     movie_companies AS mc,\n     movie_info AS mi,\n     movie_keyword AS mk,\n     name AS n,\n     person_info AS pi,\n     role_type AS rt,\n     title AS t\nWHERE cct1.kind ={}\n  AND cct2.kind ={}\n  AND chn.name = {}\n  AND ci.note IN ('(voice)',\n                  '(voice) (uncredited)',\n                  '(voice: English version)')\n  AND cn.country_code ={}\n  AND it.info = {}\n  AND it3.info = {}\n  AND k.keyword = {}\n  AND mi.info LIKE {}\n  AND n.gender ={}\n  AND n.name LIKE {}\n  AND rt.role ={}\n  AND t.title = {}\n  AND t.production_year BETWEEN 2000 AND 2005\n  AND t.id = mi.movie_id\n  AND t.id = mc.movie_id\n  AND t.id = ci.movie_id\n  AND t.id = mk.movie_id\n  AND t.id = cc.movie_id\n  AND mc.movie_id = ci.movie_id\n  AND mc.movie_id = mi.movie_id\n  AND mc.movie_id = mk.movie_id\n  AND mc.movie_id = cc.movie_id\n  AND mi.movie_id = ci.movie_id\n  AND mi.movie_id = mk.movie_id\n  AND mi.movie_id = cc.movie_id\n  AND ci.movie_id = mk.movie_id\n  AND ci.movie_id = cc.movie_id\n  AND mk.movie_id = cc.movie_id\n  AND cn.id = mc.company_id\n  AND it.id = mi.info_type_id\n  AND n.id = ci.person_id\n  AND rt.id = ci.role_id\n  AND n.id = an.person_id\n  AND ci.person_id = an.person_id\n  AND chn.id = ci.person_role_id\n  AND n.id = pi.person_id\n  AND ci.person_id = pi.person_id\n  AND it3.id = pi.info_type_id\n  AND k.id = mk.keyword_id\n  AND cct1.id = cc.subject_id\n  AND cct2.id = cc.status_id;\n\n",
+    "predicates": [
+        {
+            "alias": "cct1",
+            "column": "cct1.kind",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "cct2",
+            "column": "cct2.kind",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "chn",
+            "column": "chn.name",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "cn",
+            "column": "cn.country_code",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it",
+            "column": "it.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it3",
+            "column": "it3.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "k",
+            "column": "k.keyword",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mi",
+            "column": "mi.info",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.gender",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "rt",
+            "column": "rt.role",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.title",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}

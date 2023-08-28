@@ -1,0 +1,27 @@
+{
+    "template_id": "11c",
+    "template": "SELECT MIN(cn.name) AS from_company,\n       MIN(mc.note) AS production_note,\n       MIN(t.title) AS movie_based_on_book\nFROM company_name AS cn,\n     company_type AS ct,\n     keyword AS k,\n     link_type AS lt,\n     movie_companies AS mc,\n     movie_keyword AS mk,\n     movie_link AS ml,\n     title AS t\nWHERE cn.country_code !='[pl]'\n  AND (cn.name LIKE {}\n       OR cn.name LIKE {})\n  AND ct.kind != 'production companies'\n  AND ct.kind IS NOT NULL\n  AND k.keyword IN ('sequel',\n                    'revenge',\n                    'based-on-novel')\n  AND mc.note IS NOT NULL\n  AND t.production_year > {}\n  AND lt.id = ml.link_type_id\n  AND ml.movie_id = t.id\n  AND t.id = mk.movie_id\n  AND mk.keyword_id = k.id\n  AND t.id = mc.movie_id\n  AND mc.company_type_id = ct.id\n  AND mc.company_id = cn.id\n  AND ml.movie_id = mk.movie_id\n  AND ml.movie_id = mc.movie_id\n  AND mk.movie_id = mc.movie_id;\n\n",
+    "predicates": [
+        {
+            "alias": "cn",
+            "column": "cn.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "cn",
+            "column": "cn.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "preprocess_type": "one_hot"
+        }
+    ]
+}

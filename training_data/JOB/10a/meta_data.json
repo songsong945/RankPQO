@@ -1,0 +1,41 @@
+{
+    "template_id": "10a",
+    "template": "SELECT MIN(chn.name) AS uncredited_voiced_character,\n       MIN(t.title) AS russian_movie\nFROM char_name AS chn,\n     cast_info AS ci,\n     company_name AS cn,\n     company_type AS ct,\n     movie_companies AS mc,\n     role_type AS rt,\n     title AS t\nWHERE ci.note LIKE {}\n  AND ci.note LIKE {}\n  AND cn.country_code = {}\n  AND rt.role = {}\n  AND t.production_year > {}\n  AND t.id = mc.movie_id\n  AND t.id = ci.movie_id\n  AND ci.movie_id = mc.movie_id\n  AND chn.id = ci.person_role_id\n  AND rt.id = ci.role_id\n  AND cn.id = mc.company_id\n  AND ct.id = mc.company_type_id;\n\n",
+    "predicates": [
+        {
+            "alias": "ci",
+            "column": "ci.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "ci",
+            "column": "ci.note",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "cn",
+            "column": "cn.country_code",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "rt",
+            "column": "rt.role",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "t",
+            "column": "t.production_year",
+            "operator": ">",
+            "data_type": "int",
+            "preprocess_type": "one_hot"
+        }
+    ]
+}

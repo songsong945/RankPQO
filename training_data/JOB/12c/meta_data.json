@@ -1,0 +1,41 @@
+{
+    "template_id": "12c",
+    "template": "SELECT MIN(cn.name) AS movie_company,\n       MIN(mi_idx.info) AS rating,\n       MIN(t.title) AS mainstream_movie\nFROM company_name AS cn,\n     company_type AS ct,\n     info_type AS it1,\n     info_type AS it2,\n     movie_companies AS mc,\n     movie_info AS mi,\n     movie_info_idx AS mi_idx,\n     title AS t\nWHERE cn.country_code = {}\n  AND ct.kind = {}\n  AND it1.info = {}\n  AND it2.info = {}\n  AND mi.info IN ('Drama',\n                  'Horror',\n                  'Western',\n                  'Family')\n  AND mi_idx.info > {}\n  AND t.production_year BETWEEN 2000 AND 2010\n  AND t.id = mi.movie_id\n  AND t.id = mi_idx.movie_id\n  AND mi.info_type_id = it1.id\n  AND mi_idx.info_type_id = it2.id\n  AND t.id = mc.movie_id\n  AND ct.id = mc.company_type_id\n  AND cn.id = mc.company_id\n  AND mc.movie_id = mi.movie_id\n  AND mc.movie_id = mi_idx.movie_id\n  AND mi.movie_id = mi_idx.movie_id;\n\n",
+    "predicates": [
+        {
+            "alias": "cn",
+            "column": "cn.country_code",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "ct",
+            "column": "ct.kind",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it1",
+            "column": "it1.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "it2",
+            "column": "it2.info",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "mi_idx",
+            "column": "mi_idx.info",
+            "operator": ">",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}

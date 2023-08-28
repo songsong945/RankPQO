@@ -1,0 +1,34 @@
+{
+    "template_id": "9c",
+    "template": "SELECT MIN(an.name) AS alternative_name,\n       MIN(chn.name) AS voiced_character_name,\n       MIN(n.name) AS voicing_actress,\n       MIN(t.title) AS american_movie\nFROM aka_name AS an,\n     char_name AS chn,\n     cast_info AS ci,\n     company_name AS cn,\n     movie_companies AS mc,\n     name AS n,\n     role_type AS rt,\n     title AS t\nWHERE ci.note IN ('(voice)',\n                  '(voice: Japanese version)',\n                  '(voice) (uncredited)',\n                  '(voice: English version)')\n  AND cn.country_code ={}\n  AND n.gender ={}\n  AND n.name LIKE {}\n  AND rt.role ={}\n  AND ci.movie_id = t.id\n  AND t.id = mc.movie_id\n  AND ci.movie_id = mc.movie_id\n  AND mc.company_id = cn.id\n  AND ci.role_id = rt.id\n  AND n.id = ci.person_id\n  AND chn.id = ci.person_role_id\n  AND an.person_id = n.id\n  AND an.person_id = ci.person_id;\n\n",
+    "predicates": [
+        {
+            "alias": "cn",
+            "column": "cn.country_code",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.gender",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "n",
+            "column": "n.name",
+            "operator": "like",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        },
+        {
+            "alias": "rt",
+            "column": "rt.role",
+            "operator": "=",
+            "data_type": "text",
+            "preprocess_type": "embedding"
+        }
+    ]
+}
