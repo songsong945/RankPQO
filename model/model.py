@@ -85,7 +85,7 @@ class OneHotNN(nn.Module):
     def forward(self, x):
         # Batch x 1
         one_hot = torch.zeros(x.size(0), self.num_classes, device=x.device)
-        one_hot.scatter_(1, x, 1)
+        one_hot.scatter_(1, x.long(), 1)
         return one_hot  # Batch x num_classes
 
 
@@ -122,10 +122,11 @@ class PlanEmbeddingNet(nn.Module):
 
 
 class ParameterEmbeddingNet(nn.Module):
-    def __init__(self, template_id, preprocessing_infos):
+    def __init__(self, template_id, preprocessing_infos, embed_dim = 32):
         super(ParameterEmbeddingNet, self).__init__()
 
         self.id = template_id
+        self.embed_dim = embed_dim
         # input_dim = Template_DIM[template_id]
         # Layers
 
@@ -141,8 +142,8 @@ class ParameterEmbeddingNet(nn.Module):
                 layers.append(nn.Identity())
                 embed_len += 1
             elif info["type"] == "embedding":
-                layers.append(nn.Embedding(info["max_len"], info["output_dim"]))
-                embed_len = info['output_dim']
+                layers.append(nn.Embedding(info["max_len"], embed_dim))
+                embed_len += embed_dim
             else:
                 raise ValueError(f"Unknown preprocessing type: {info['type']}")
         self.embed_layers = nn.ModuleList(layers)
@@ -159,7 +160,7 @@ class ParameterEmbeddingNet(nn.Module):
         embedded = []
         for x_i, e in zip(x_l, self.embed_layers):
             if not isinstance(e, nn.Identity):
-                embedded.append(e(x_i).long()).view(batch_size, -1)
+                embedded.append(e(x_i.long()).view(batch_size, -1))
             else:
                 embedded.append(e(x_i))
 
@@ -292,11 +293,12 @@ class RankPQOModel():
                 y_pred_1 = self.plan_net(tree_x1)
                 y_pred_2 = self.plan_net(tree_x2)
                 z_pred = self.parameter_net(z)
-                distance_1 = torch.norm(y_pred_1 - z_pred)
-                distance_2 = torch.norm(y_pred_2 - z_pred)
-                prob_y = 1.0 if distance_1 <= distance_2 else 0.0
+                distance_1 = torch.norm(y_pred_1 - z_pred, dim = 1) #bugged
+                distance_2 = torch.norm(y_pred_2 - z_pred, dim = 1)
+                # prob_y = 1.0 if distance_1 <= distance_2 else 0.0
+                prob_y = torch.sigmoid(distance_1 - distance_2).float()
 
-                label_y = torch.tensor(np.array(label).reshape(-1, 1))
+                # label_y = torch.tensor(np.array(label).reshape(-1, 1))
                 if CUDA:
                     label_y = label_y.cuda(device)
 

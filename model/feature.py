@@ -28,7 +28,7 @@ def json_str_to_json_obj(json_data):
 
 
 
-def apply_preprocessing_vector(vector: list,
+def preprocess_z(vector: list,
                                params: list,
                                preprocessing_infos: list) -> torch.Tensor:
     """Generates a preprocessed vector for a given parameter input.
@@ -94,7 +94,7 @@ def apply_preprocessing_vector(vector: list,
     ## instead of the full vector  
 
     # Concatenate all processed components into a single vector
-    return np.array(processed_components)
+    return np.transpose(np.array(processed_components))
     # return torch.cat(processed_components, dim=-1)
 
 
@@ -201,7 +201,7 @@ class FeatureGenerator():
         return local_features
 
     def transform_z(self, Z, params, preprocessing_infos):
-        return apply_preprocessing_vector(Z, params, preprocessing_infos)
+        return preprocess_z(Z, params, preprocessing_infos)
 
 
 

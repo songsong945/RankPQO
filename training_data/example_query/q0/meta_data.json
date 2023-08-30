@@ -9,7 +9,8 @@
             "data_type": "int",
             "min": 1980,
             "max": 2023,
-            "preprocess_type":"one_hot"
+            "preprocess_type":"one_hot",
+            "max_len" : 50
         },
         {
             "alias": "cn",
@@ -17,7 +18,8 @@
             "operator": "like",
             "data_type": "text",
             "distinct_values": ["%John%", "%smith%", "%Sandy%"],
-            "preprocess_type":"embedding"
+            "preprocess_type":"embedding",
+            "max_len" : 40
         }
     ]
 }

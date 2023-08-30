@@ -51,8 +51,7 @@ def get_param_info(meta):
                 preprocess_info_data["mean"] = data["mean"]
                 preprocess_info_data["variance"] = data["variance"]
 
-            if data["preprocess_type"] == "embedding" and "output_dim" in data and "max_len" in data:
-                preprocess_info_data["output_dim"] = data["output_dim"]
+            if data["preprocess_type"] == "embedding" and "max_len" in data:
                 preprocess_info_data["max_len"] = data["max_len"]
 
             preprocess_info.append(preprocess_info_data)
