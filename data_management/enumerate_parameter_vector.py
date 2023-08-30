@@ -13,7 +13,8 @@ def sample_float(mean, variance):
 
 
 def sample_text(distinct_values):
-    return random.choice(distinct_values)
+    non_empty_values = [value for value in distinct_values if value is not None and value != ""]
+    return random.choice(non_empty_values) if non_empty_values else None
 
 
 def generate_parameters(meta_data_path, num_samples=1000):

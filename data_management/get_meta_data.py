@@ -32,16 +32,11 @@ def determine_preprocess_type(data_type):
 
 def extract_conditions_from_token(token):
     conditions = []
-    if isinstance(token, sqlparse.sql.Parenthesis):
+    if 'BETWEEN' in token.value.upper() and 'AND' in token.value.upper():
+        pass
+    elif isinstance(token, sqlparse.sql.Parenthesis) or (isinstance(token, sqlparse.sql.Operation) and token.value.upper() in ['AND', 'OR']):
         for item in token.tokens:
-            if isinstance(item, sqlparse.sql.Comparison):
-                left, operator, right = extract_comparison(item)
-                if right and (right[0] in ("'", '"', '`') or is_numeric(right)):
-                    conditions.append({
-                        "column": left,
-                        "operator": operator,
-                        "value": right
-                    })
+            conditions.extend(extract_conditions_from_token(item))
     elif isinstance(token, sqlparse.sql.Comparison):
         left, operator, right = extract_comparison(token)
         if right and (right[0] in ("'", '"', '`') or is_numeric(right)):
@@ -54,7 +49,7 @@ def extract_conditions_from_token(token):
 
 
 def extract_comparison(item):
-    operators = ['=', '>', '<', '>=', '<=', '<>', 'LIKE', 'NOT LIKE']
+    operators = ['=', '>', '<', '>=', '<=', '<>', '!=', 'LIKE', 'NOT LIKE']
     operator_token = None
 
     for token in item.tokens:
@@ -71,7 +66,7 @@ def extract_comparison(item):
     return left.strip(), operator_token.value.upper(), right.strip()
 
 
-def generate_meta_data_from_sql(file_path, meta_data_path, template_id="q1"):
+def generate_meta_data_from_sql(file_path, meta_data_path, template_id):
     with open(file_path, 'r') as file:
         sql = file.read()
 
@@ -100,7 +95,7 @@ def generate_meta_data_from_sql(file_path, meta_data_path, template_id="q1"):
             "data_type": data_type,
             "preprocess_type": preprocess_type
         })
-        template = template.replace(condition["value"], "{}", 1)
+        template = template.replace(condition["value"], "%s", 1)
 
     template_json = {
         "template_id": template_id,
