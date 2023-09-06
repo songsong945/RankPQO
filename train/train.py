@@ -2,8 +2,8 @@ import argparse
 import json
 import os
 
-from feature import FeatureGenerator
-from model import RankPQOModel
+from model.feature import FeatureGenerator
+from model.model import RankPQOModel
 
 
 def _param_path(base):
@@ -41,18 +41,17 @@ def get_param_info(meta):
 
             params.append(param_data)
 
-        if data["type"] in ["one_hot", "std_normalization", "embedding"]:
-            preprocess_info_data["type"] = data["type"]
+        if data["preprocess_type"] in ["one_hot", "std_normalization", "embedding"]:
+            preprocess_info_data["type"] = data["preprocess_type"]
 
-            if data["type"] == "one_hot" and "max_len" in data:
+            if data["preprocess_type"] == "one_hot" and "max_len" in data:
                 preprocess_info_data["max_len"] = data["max_len"]
 
-            if data["type"] == "std_normalization" and "mean" in data and "variance" in data:
+            if data["preprocess_type"] == "std_normalization" and "mean" in data and "variance" in data:
                 preprocess_info_data["mean"] = data["mean"]
                 preprocess_info_data["variance"] = data["variance"]
 
-            if data["type"] == "embedding" and "output_dim" in data and "max_len" in data:
-                preprocess_info_data["output_dim"] = data["output_dim"]
+            if data["preprocess_type"] == "embedding" and "max_len" in data:
                 preprocess_info_data["max_len"] = data["max_len"]
 
             preprocess_info.append(preprocess_info_data)
@@ -79,7 +78,7 @@ def get_training_pair(candidate_plan, plan, param_key, cost):
     return X1, X2, Y1, Y2
 
 
-def _load_training_data(training_data_file, template_id):
+def load_training_data(training_data_file, template_id):
     path = os.path.join(training_data_file, template_id)
     Z, X1, X2, Y1, Y2, params, preprocess_info = [], [], [], [], [], [], []
 
@@ -109,7 +108,7 @@ def _load_training_data(training_data_file, template_id):
     return Z, X1, X2, Y1, Y2, params, preprocess_info
 
 
-def training_pairwise(training_data_file, model_path, template_id):
+def training_pairwise(training_data_file, model_path, template_id, device='cpu'):
     Z, X1, X2, Y1, Y2, params, preprocess_info = _load_training_data(training_data_file, template_id)
 
     tuning_model = model_path is not None
@@ -129,7 +128,7 @@ def training_pairwise(training_data_file, model_path, template_id):
 
     if not tuning_model:
         assert rank_PQO_model is None
-        rank_PQO_model = RankPQOModel(feature_generator, template_id)
+        rank_PQO_model = RankPQOModel(feature_generator, template_id, preprocess_info, device=device)
     rank_PQO_model.fit(X1, X2, Y1, Y2, Z, tuning_model)
 
     print("saving model...")
@@ -142,6 +141,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--template_id", type=int)
     parser.add_argument("--pre_trained", type=int)
+    parser.add_argument("--device", type=str, default='cpu')
 
     args = parser.parse_args()
 
@@ -165,4 +165,6 @@ if __name__ == "__main__":
         pre_trained = args.pre_trained
     print("pre_trained:", pre_trained)
 
-    training_pairwise(training_data, model_path, template_id, pre_trained)
+    print("Device: ", args.device)
+
+    training_pairwise(training_data, model_path, template_id, pre_trained, args.device)
