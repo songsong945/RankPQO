@@ -19,7 +19,6 @@ def connect_to_pg():
     return connection
 
 
-
 def generate_hint_from_plan(plan):
     node = plan['Plan']
     hints = []
@@ -115,8 +114,8 @@ def evaluate_plans_for_parameters(connection, meta_data, plans, parameters_data)
 
             query_with_hint = query_with_hint.format(*param_values)
 
-            cost = fetch_plan_cost(connection, query_with_hint, param_values)
-            # cost = fetch_actual_latency(connection, query_with_hint, param_values)
+            # cost = fetch_plan_cost(connection, query_with_hint, param_values)
+            cost = fetch_actual_latency(connection, query_with_hint, param_values)
             results[param_key][plan_key] = cost
 
     return results
@@ -140,7 +139,7 @@ def evaluate_all(data_directory):
 
             costs = evaluate_plans_for_parameters(connection, meta_data, plans, parameters)
 
-            with open(os.path.join(subdir, "cost_matrix.json"), 'w') as f_costs:
+            with open(os.path.join(subdir, "latency_matrix.json"), 'w') as f_costs:
                 json.dump(costs, f_costs, indent=4)
 
     connection.close()
@@ -162,7 +161,7 @@ def evaluate_directory(subdir):
 
     costs = evaluate_plans_for_parameters(connection, meta_data, plans, parameters)
 
-    with open(os.path.join(subdir, "cost_matrix.json"), 'w') as f_costs:
+    with open(os.path.join(subdir, "latency_matrix.json"), 'w') as f_costs:
         json.dump(costs, f_costs, indent=4)
 
     connection.close()
@@ -183,4 +182,3 @@ def evaluate_all_mutil_process(data_directory):
 if __name__ == "__main__":
     meta_data_path = '../training_data/JOB/'
     evaluate_all_mutil_process(meta_data_path)
-
