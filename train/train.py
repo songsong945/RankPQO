@@ -1,13 +1,16 @@
 import argparse
 import json
 import os
+import sys
+
+sys.path.append('..')
 
 from model.feature import FeatureGenerator
 from model.model import RankPQOModel
 
 
 def _param_path(base):
-    return os.path.join(base, "parameters.json")
+    return os.path.join(base, "parameter.json")
 
 
 def _cost_path(base):
@@ -19,7 +22,7 @@ def _meta_path(base):
 
 
 def _plan_path(base):
-    return os.path.join(base, "plans.json")
+    return os.path.join(base, "plan.json")
 
 
 def get_param_info(meta):
@@ -108,13 +111,13 @@ def load_training_data(training_data_file, template_id):
     return Z, X1, X2, Y1, Y2, params, preprocess_info
 
 
-def training_pairwise(training_data_file, model_path, template_id, device='cpu'):
-    Z, X1, X2, Y1, Y2, params, preprocess_info = _load_training_data(training_data_file, template_id)
+def training_pairwise(training_data_file, model_path, template_id, device, pre_trained=0):
+    Z, X1, X2, Y1, Y2, params, preprocess_info = load_training_data(training_data_file, template_id)
 
     tuning_model = model_path is not None
     rank_PQO_model = None
-    if tuning_model:
-        rank_PQO_model = RankPQOModel(None, template_id)
+    if pre_trained:
+        rank_PQO_model = RankPQOModel(None, template_id, None)
         rank_PQO_model.load(model_path)
         feature_generator = rank_PQO_model._feature_generator
     else:
@@ -126,10 +129,10 @@ def training_pairwise(training_data_file, model_path, template_id, device='cpu')
     Z = feature_generator.transform_z(Z, params, preprocess_info)
     print("Training data set size = " + str(len(X1)))
 
-    if not tuning_model:
+    if not pre_trained:
         assert rank_PQO_model is None
         rank_PQO_model = RankPQOModel(feature_generator, template_id, preprocess_info, device=device)
-    rank_PQO_model.fit(X1, X2, Y1, Y2, Z, tuning_model)
+    rank_PQO_model.fit(X1, X2, Y1, Y2, Z, pre_trained)
 
     print("saving model...")
     rank_PQO_model.save(model_path)
@@ -139,7 +142,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("Model training helper")
     parser.add_argument("--training_data", type=str)
     parser.add_argument("--model_path", type=str)
-    parser.add_argument("--template_id", type=int)
+    parser.add_argument("--template_id", type=str)
     parser.add_argument("--pre_trained", type=int)
     parser.add_argument("--device", type=str, default='cpu')
 
@@ -167,4 +170,4 @@ if __name__ == "__main__":
 
     print("Device: ", args.device)
 
-    training_pairwise(training_data, model_path, template_id, pre_trained, args.device)
+    training_pairwise(training_data, model_path, template_id, args.device, pre_trained)

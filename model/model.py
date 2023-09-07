@@ -11,16 +11,15 @@ from torch.utils.data import Dataset
 # from model.TreeConvolution.util import *
 
 import joblib
-from feature import SampleEntity
-from TreeConvolution.tcnn import (BinaryTreeConv, DynamicPooling,
-                                  TreeActivation, TreeLayerNorm)
-from TreeConvolution.util import prepare_trees
+from .feature import SampleEntity
+from .TreeConvolution.tcnn import (BinaryTreeConv, DynamicPooling,
+                                   TreeActivation, TreeLayerNorm)
+from .TreeConvolution.util import prepare_trees
 
 CUDA = torch.cuda.is_available()
 GPU_LIST = [0]
 
 torch.set_default_tensor_type(torch.DoubleTensor)
-device = torch.device("cuda:0" if CUDA else "cpu")
 
 Template_DIM = []
 
@@ -52,6 +51,7 @@ def collate_fn(x):
     targets = torch.tensor(targets)
     return trees, targets
 
+
 class PairDataset(Dataset):
     def __init__(self, X1, X2, Y1, Y2, Z):
         self.X1 = X1
@@ -70,6 +70,7 @@ class PairDataset(Dataset):
     def __getitem__(self, idx):
         return self.X1[idx], self.X2[idx], self.Z[idx], self.Y[idx]
 
+
 def collate_pairwise_fn(x):
     trees1 = []
     trees2 = []
@@ -81,8 +82,7 @@ def collate_pairwise_fn(x):
         trees2.append(tree2)
         parameters2.append(parameter2)
         labels.append(label)
-    return trees1, trees2, torch.FloatTensor(np.array(parameters2)), torch.FloatTensor(np.array(labels)).reshape(-1, 1)        
-
+    return trees1, trees2, torch.FloatTensor(np.array(parameters2)), torch.FloatTensor(np.array(labels)).reshape(-1, 1)
 
 
 def transformer(x: SampleEntity):
@@ -144,7 +144,7 @@ class PlanEmbeddingNet(nn.Module):
 
 
 class ParameterEmbeddingNet(nn.Module):
-    def __init__(self, template_id, preprocessing_infos, embed_dim = 32):
+    def __init__(self, template_id, preprocessing_infos, embed_dim=32):
         super(ParameterEmbeddingNet, self).__init__()
 
         self.id = template_id
@@ -195,7 +195,7 @@ class ParameterEmbeddingNet(nn.Module):
 
 
 class RankPQOModel():
-    def __init__(self, feature_generator, template_id, preprocessing_infos, device = 'cpu') -> None:
+    def __init__(self, feature_generator, template_id, preprocessing_infos, device='cpu') -> None:
         super(RankPQOModel, self).__init__()
         self._feature_generator = feature_generator
         self._input_feature_dim = None
@@ -209,7 +209,7 @@ class RankPQOModel():
             self._input_feature_dim = joblib.load(f)
 
         self.plan_net = PlanEmbeddingNet(self._input_feature_dim)
-        if CUDA:
+        if self.device != 'cpu':
             self.plan_net.load_state_dict(torch.load(_nn_path(path)))
         else:
             self.plan_net.load_state_dict(torch.load(
@@ -217,7 +217,7 @@ class RankPQOModel():
         self.plan_net.eval()
 
         self.parameter_net = ParameterEmbeddingNet(self.preprocessing_infos)
-        if CUDA:
+        if self.device != 'cpu':
             self.parameter_net.load_state_dict(torch.load(_fnn_path(path, self._template_id)))
         else:
             self.parameter_net.load_state_dict(torch.load(
@@ -245,7 +245,7 @@ class RankPQOModel():
         with open(_input_feature_dim_path(path), "wb") as f:
             joblib.dump(self._input_feature_dim, f)
 
-    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size = 4, epochs = 100):
+    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=4, epochs=100):
         assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
         if isinstance(Y1, list):
             Y1 = np.array(Y1)
@@ -259,9 +259,9 @@ class RankPQOModel():
             input_feature_dim = len(X1[0].get_feature())
             print("input_feature_dim:", input_feature_dim)
 
-            self.plan_net = PlanEmbeddingNet(input_feature_dim).to(device)
+            self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
             self._input_feature_dim = input_feature_dim
-            self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(device)
+            self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
             # if CUDA:
             #     self.plan_net = self.plan_net.cuda(device)
             #     self.plan_net = torch.nn.DataParallel(
@@ -278,9 +278,9 @@ class RankPQOModel():
 
         dataset = PairDataset(X1, X2, Y1, Y2, Z)
         dataloader = DataLoader(dataset,
-                             batch_size=batch_size,
-                             shuffle=True,
-                             collate_fn=collate_pairwise_fn)
+                                batch_size=batch_size,
+                                shuffle=True,
+                                collate_fn=collate_pairwise_fn)
 
         # if CUDA:
         #     plan_optimizer = torch.optim.Adam(self.plan_net.module.parameters())
@@ -298,8 +298,8 @@ class RankPQOModel():
         for epoch in range(epochs):
             loss_accum = 0
             for x1, x2, z, label in dataloader:
-                z = z.to(device)
-                label = label.to(device)
+                z = z.to(self.device)
+                label = label.to(self.device)
 
                 # tree_x1, tree_x2 = None, None
                 # if CUDA:
@@ -313,8 +313,8 @@ class RankPQOModel():
                 y_pred_1 = self.plan_net(tree_x1)
                 y_pred_2 = self.plan_net(tree_x2)
                 z_pred = self.parameter_net(z)
-                distance_1 = torch.norm(y_pred_1 - z_pred, dim = 1) #bugged
-                distance_2 = torch.norm(y_pred_2 - z_pred, dim = 1)
+                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)  # bugged
+                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
                 # prob_y = 1.0 if distance_1 <= distance_2 else 0.0
                 prob_y = torch.sigmoid(distance_1 - distance_2).float()
 
@@ -322,7 +322,7 @@ class RankPQOModel():
                 # if CUDA:
                 #     label_y = label_y.cuda(device)
 
-                loss = bce_loss_fn(prob_y.view(-1,1), label)
+                loss = bce_loss_fn(prob_y.view(-1, 1), label)
                 loss_accum += loss.item()
 
                 # if CUDA:
