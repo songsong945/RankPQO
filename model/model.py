@@ -16,10 +16,7 @@ from .TreeConvolution.tcnn import (BinaryTreeConv, DynamicPooling,
                                    TreeActivation, TreeLayerNorm)
 from .TreeConvolution.util import prepare_trees
 
-CUDA = torch.cuda.is_available()
-GPU_LIST = [0]
-
-torch.set_default_tensor_type(torch.DoubleTensor)
+np.random.seed(42)
 
 Template_DIM = []
 
@@ -28,8 +25,12 @@ def _nn_path(base):
     return os.path.join(base, "nn_weights")
 
 
-def _fnn_path(base, template_id):
+def _fnn_path_first_layer(base, template_id):
     return os.path.join(base, "fnn_weights_" + template_id)
+
+
+def _fnn_path(base):
+    return os.path.join(base, "fnn_weights")
 
 
 def _feature_generator_path(base):
@@ -69,6 +70,45 @@ class PairDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.X1[idx], self.X2[idx], self.Z[idx], self.Y[idx]
+
+
+def split_pair_dataset(X1, X2, Y1, Y2, Z, train_ratio=0.8, val_ratio=0.1):
+    assert len(X1) == len(X2) == len(Y1) == len(Y2) == len(Z)
+
+    total_size = len(X1)
+    indices = list(range(total_size))
+    np.random.shuffle(indices)  # shuffle indices randomly
+
+    # Determine the split sizes
+    train_size = int(train_ratio * total_size)
+    val_size = int(val_ratio * total_size)
+    test_size = total_size - train_size - val_size
+
+    # Split the indices
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:train_size + val_size]
+    test_indices = indices[train_size + val_size:]
+
+    # Create sub-datasets
+    train_dataset = PairDataset([X1[i] for i in train_indices],
+                                [X2[i] for i in train_indices],
+                                [Y1[i] for i in train_indices],
+                                [Y2[i] for i in train_indices],
+                                [Z[i] for i in train_indices])
+
+    val_dataset = PairDataset([X1[i] for i in val_indices],
+                              [X2[i] for i in val_indices],
+                              [Y1[i] for i in val_indices],
+                              [Y2[i] for i in val_indices],
+                              [Z[i] for i in val_indices])
+
+    test_dataset = PairDataset([X1[i] for i in test_indices],
+                               [X2[i] for i in test_indices],
+                               [Y1[i] for i in test_indices],
+                               [Y2[i] for i in test_indices],
+                               [Z[i] for i in test_indices])
+
+    return train_dataset, val_dataset, test_dataset
 
 
 def collate_pairwise_fn(x):
@@ -149,8 +189,6 @@ class ParameterEmbeddingNet(nn.Module):
 
         self.id = template_id
         self.embed_dim = embed_dim
-        # input_dim = Template_DIM[template_id]
-        # Layers
 
         layers = []
         self.length = len(preprocessing_infos)
@@ -195,7 +233,7 @@ class ParameterEmbeddingNet(nn.Module):
 
 
 class RankPQOModel():
-    def __init__(self, feature_generator, template_id, preprocessing_infos, device='cpu') -> None:
+    def __init__(self, feature_generator, template_id, preprocessing_infos, device) -> None:
         super(RankPQOModel, self).__init__()
         self._feature_generator = feature_generator
         self._input_feature_dim = None
@@ -204,24 +242,21 @@ class RankPQOModel():
         self.preprocessing_infos = preprocessing_infos
         self.device = device
 
-    def load(self, path):
+    def load(self, path, fist_layer):
         with open(_input_feature_dim_path(path), "rb") as f:
             self._input_feature_dim = joblib.load(f)
 
-        self.plan_net = PlanEmbeddingNet(self._input_feature_dim)
-        if self.device != 'cpu':
-            self.plan_net.load_state_dict(torch.load(_nn_path(path)))
-        else:
-            self.plan_net.load_state_dict(torch.load(
-                _nn_path(path), map_location=torch.device('cpu')))
+        self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
+        self.plan_net.load_state_dict(torch.load(
+            _nn_path(path), map_location=torch.device(self.device)))
         self.plan_net.eval()
 
-        self.parameter_net = ParameterEmbeddingNet(self.preprocessing_infos)
-        if self.device != 'cpu':
-            self.parameter_net.load_state_dict(torch.load(_fnn_path(path, self._template_id)))
-        else:
-            self.parameter_net.load_state_dict(torch.load(
-                _fnn_path(path, self._template_id), map_location=torch.device('cpu')))
+        self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
+        if fist_layer:
+            self.parameter_net.fc1.load_state_dict(torch.load(_fnn_path_first_layer(path, self._template_id), map_location=torch.device(self.device)))
+        state_dicts = torch.load(_fnn_path(path), map_location=torch.device(self.device))
+        self.parameter_net.fc2.load_state_dict(state_dicts['fc2'])
+        self.parameter_net.fc3.load_state_dict(state_dicts['fc3'])
         self.parameter_net.eval()
 
         with open(_feature_generator_path(path), "rb") as f:
@@ -230,22 +265,19 @@ class RankPQOModel():
     def save(self, path):
         os.makedirs(path, exist_ok=True)
 
-        if CUDA:
-            torch.save(self.plan_net.module.state_dict(), _nn_path(path))
-        else:
-            torch.save(self.plan_net.state_dict(), _nn_path(path))
-
-        if CUDA:
-            torch.save(self.parameter_net.module.state_dict(), _fnn_path(path, self.preprocessing_infos))
-        else:
-            torch.save(self.parameter_net.state_dict(), _fnn_path(path, self.preprocessing_infos))
+        torch.save(self.plan_net.state_dict(), _nn_path(path))
+        torch.save(self.parameter_net.fc1.state_dict(), _fnn_path_first_layer(path, self._template_id))
+        torch.save({
+            'fc2': self.parameter_net.fc2.state_dict(),
+            'fc3': self.parameter_net.fc3.state_dict()
+        }, _fnn_path(path))
 
         with open(_feature_generator_path(path), "wb") as f:
             joblib.dump(self._feature_generator, f)
         with open(_input_feature_dim_path(path), "wb") as f:
             joblib.dump(self._input_feature_dim, f)
 
-    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=4, epochs=100):
+    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=16, epochs=50):
         assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
         if isinstance(Y1, list):
             Y1 = np.array(Y1)
@@ -260,21 +292,9 @@ class RankPQOModel():
             print("input_feature_dim:", input_feature_dim)
 
             self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+
             self._input_feature_dim = input_feature_dim
             self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
-            # if CUDA:
-            #     self.plan_net = self.plan_net.cuda(device)
-            #     self.plan_net = torch.nn.DataParallel(
-            #         self.plan_net, device_ids=GPU_LIST)
-            #     self.plan_net.cuda(device)
-            #     self.parameter_net = self.parameter_net.cuda(device)
-            #     self.parameter_net = torch.nn.DataParallel(
-            #         self.parameter_net, device_ids=GPU_LIST)
-            #     self.parameter_net.cuda(device)
-
-        # pairs = []
-        # for i in range(len(X1)):
-        #     pairs.append((X1[i], X2[i], Z[i], 1.0 if Y1[i] <= Y2[i] else 0.0))
 
         dataset = PairDataset(X1, X2, Y1, Y2, Z)
         dataloader = DataLoader(dataset,
@@ -282,12 +302,6 @@ class RankPQOModel():
                                 shuffle=True,
                                 collate_fn=collate_pairwise_fn)
 
-        # if CUDA:
-        #     plan_optimizer = torch.optim.Adam(self.plan_net.module.parameters())
-        #     plan_optimizer = nn.DataParallel(plan_optimizer, device_ids=GPU_LIST)
-        #     parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
-        #     parameter_optimizer = nn.DataParallel(parameter_optimizer, device_ids=GPU_LIST)
-        # else:
         plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
         parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
 
@@ -301,11 +315,6 @@ class RankPQOModel():
                 z = z.to(self.device)
                 label = label.to(self.device)
 
-                # tree_x1, tree_x2 = None, None
-                # if CUDA:
-                #     tree_x1 = self.plan_net.module.build_trees(x1)
-                #     tree_x2 = self.plan_net.module.build_trees(x2)
-                # else:
                 tree_x1 = self.plan_net.build_trees(x1)
                 tree_x2 = self.plan_net.build_trees(x2)
 
@@ -313,25 +322,13 @@ class RankPQOModel():
                 y_pred_1 = self.plan_net(tree_x1)
                 y_pred_2 = self.plan_net(tree_x2)
                 z_pred = self.parameter_net(z)
-                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)  # bugged
+                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
                 distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
-                # prob_y = 1.0 if distance_1 <= distance_2 else 0.0
                 prob_y = torch.sigmoid(distance_1 - distance_2).float()
-
-                # label_y = torch.tensor(np.array(label).reshape(-1, 1))
-                # if CUDA:
-                #     label_y = label_y.cuda(device)
 
                 loss = bce_loss_fn(prob_y.view(-1, 1), label)
                 loss_accum += loss.item()
 
-                # if CUDA:
-                #     plan_optimizer.module.zero_grad()
-                #     parameter_optimizer.module.zero_grad()
-                #     loss.backward()
-                #     plan_optimizer.module.step()
-                #     parameter_optimizer.module.step()
-                # else:
                 plan_optimizer.zero_grad()
                 parameter_optimizer.zero_grad()
                 loss.backward()
@@ -343,3 +340,120 @@ class RankPQOModel():
 
             print("Epoch", epoch, "training loss:", loss_accum)
         print("training time:", time() - start_time, "batch size:", batch_size)
+
+    def evaluate(self, dataset, dataloader):
+        bce_loss_fn = torch.nn.BCELoss()
+
+        self.plan_net.eval()
+        self.parameter_net.eval()
+
+        loss_accum = 0
+        with torch.no_grad():
+            for x1, x2, z, label in dataloader:
+                z = z.to(self.device)
+                label = label.to(self.device)
+
+                tree_x1 = self.plan_net.build_trees(x1)
+                tree_x2 = self.plan_net.build_trees(x2)
+
+                # pairwise
+                y_pred_1 = self.plan_net(tree_x1)
+                y_pred_2 = self.plan_net(tree_x2)
+                z_pred = self.parameter_net(z)
+                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
+                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
+                prob_y = torch.sigmoid(distance_1 - distance_2).float()
+
+                loss = bce_loss_fn(prob_y.view(-1, 1), label)
+                loss_accum += loss.item()
+
+        # Compute average loss
+        avg_loss = loss_accum / len(dataset)
+
+        # Return to training mode
+        self.plan_net.train()
+        self.parameter_net.train()
+
+        return avg_loss
+
+    def fit_with_test(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=16, epochs=50):
+        assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
+        if isinstance(Y1, list):
+            Y1 = np.array(Y1)
+            Y1 = Y1.reshape(-1, 1)
+        if isinstance(Y2, list):
+            Y2 = np.array(Y2)
+            Y2 = Y2.reshape(-1, 1)
+
+        # # determine the initial number of channels
+        if not pre_training:
+            input_feature_dim = len(X1[0].get_feature())
+            print("input_feature_dim:", input_feature_dim)
+
+            self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+
+            self._input_feature_dim = input_feature_dim
+            self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
+
+            self.plan_net.train()
+            self.parameter_net.train()
+
+        # Splitting the dataset
+        train_dataset, val_dataset, test_dataset = split_pair_dataset(X1, X2, Y1, Y2, Z)
+
+        train_dataloader = DataLoader(train_dataset,
+                                      batch_size=batch_size,
+                                      shuffle=True,
+                                      collate_fn=collate_pairwise_fn)
+        val_dataloader = DataLoader(val_dataset,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    collate_fn=collate_pairwise_fn)
+        test_dataloader = DataLoader(test_dataset,
+                                     batch_size=batch_size,
+                                     shuffle=True,
+                                     collate_fn=collate_pairwise_fn)
+
+        plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
+        parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
+
+        bce_loss_fn = torch.nn.BCELoss()
+
+        losses = []
+        start_time = time()
+        for epoch in range(epochs):
+            loss_accum = 0
+            for x1, x2, z, label in train_dataloader:
+                z = z.to(self.device)
+                label = label.to(self.device)
+
+                tree_x1 = self.plan_net.build_trees(x1)
+                tree_x2 = self.plan_net.build_trees(x2)
+
+                # pairwise
+                y_pred_1 = self.plan_net(tree_x1)
+                y_pred_2 = self.plan_net(tree_x2)
+                z_pred = self.parameter_net(z)
+                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
+                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
+                prob_y = torch.sigmoid(distance_1 - distance_2).float()
+
+                loss = bce_loss_fn(prob_y.view(-1, 1), label)
+                loss_accum += loss.item()
+
+                plan_optimizer.zero_grad()
+                parameter_optimizer.zero_grad()
+                loss.backward()
+                plan_optimizer.step()
+                parameter_optimizer.step()
+
+            loss_accum /= len(train_dataset)
+            losses.append(loss_accum)
+
+            print("Epoch", epoch, "training loss:", loss_accum)
+
+            if epoch % 5 == 0:
+                print("validation loss:", self.evaluate(val_dataset, val_dataloader))
+
+        print("training time:", time() - start_time, "batch size:", batch_size)
+        print("test loss:", self.evaluate(test_dataset, test_dataloader))

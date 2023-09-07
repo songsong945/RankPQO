@@ -111,14 +111,13 @@ def load_training_data(training_data_file, template_id):
     return Z, X1, X2, Y1, Y2, params, preprocess_info
 
 
-def training_pairwise(training_data_file, model_path, template_id, device, pre_trained=0):
+def training_pairwise(training_data_file, model_path, template_id, device, pre_trained=0, first_layer=0):
     Z, X1, X2, Y1, Y2, params, preprocess_info = load_training_data(training_data_file, template_id)
 
-    tuning_model = model_path is not None
     rank_PQO_model = None
     if pre_trained:
-        rank_PQO_model = RankPQOModel(None, template_id, None)
-        rank_PQO_model.load(model_path)
+        rank_PQO_model = RankPQOModel(None, template_id, preprocess_info, device=device)
+        rank_PQO_model.load(model_path, first_layer)
         feature_generator = rank_PQO_model._feature_generator
     else:
         feature_generator = FeatureGenerator()
@@ -132,7 +131,7 @@ def training_pairwise(training_data_file, model_path, template_id, device, pre_t
     if not pre_trained:
         assert rank_PQO_model is None
         rank_PQO_model = RankPQOModel(feature_generator, template_id, preprocess_info, device=device)
-    rank_PQO_model.fit(X1, X2, Y1, Y2, Z, pre_trained)
+    rank_PQO_model.fit_with_test(X1, X2, Y1, Y2, Z, pre_trained)
 
     print("saving model...")
     rank_PQO_model.save(model_path)
@@ -144,6 +143,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--template_id", type=str)
     parser.add_argument("--pre_trained", type=int)
+    parser.add_argument("--first_layer", type=int)
     parser.add_argument("--device", type=str, default='cpu')
 
     args = parser.parse_args()
@@ -168,6 +168,11 @@ if __name__ == "__main__":
         pre_trained = args.pre_trained
     print("pre_trained:", pre_trained)
 
+    first_layer = False
+    if args.first_layer is not None:
+        first_layer = args.first_layer
+    print("first_layer:", first_layer)
+
     print("Device: ", args.device)
 
-    training_pairwise(training_data, model_path, template_id, args.device, pre_trained)
+    training_pairwise(training_data, model_path, template_id, args.device, pre_trained, first_layer)
