@@ -135,24 +135,24 @@ def _pad_and_combine(x):
 
     return np.array(vecs)
 
-def prepare_trees(trees, transformer, left_child, right_child, cuda=False, device=None):
+def prepare_trees(trees, transformer, left_child, right_child, device='cpu'):
     flat_trees = [_flatten(x, transformer, left_child, right_child) for x in trees]
     flat_trees = _pad_and_combine(flat_trees)
     flat_trees = torch.Tensor(flat_trees)
 
     # flat trees is now batch x max tree nodes x channels
     flat_trees = flat_trees.transpose(1, 2)
-    if cuda:
-        flat_trees = flat_trees.cuda(device)
-        # flat_trees = flat_trees.to(device)
+    # if cuda:
+    #     flat_trees = flat_trees.cuda(device)
+    flat_trees = flat_trees.to(device)
 
     indexes = [_tree_conv_indexes(x, left_child, right_child) for x in trees]
     indexes = _pad_and_combine(indexes)
     indexes = torch.Tensor(indexes).long()
 
-    if cuda:
-        indexes = indexes.cuda(device)
-        # indexes = indexes.to(device)
+    # if cuda:
+    #     indexes = indexes.cuda(device)
+    indexes = indexes.to(device)
 
     return (flat_trees, indexes)
                     

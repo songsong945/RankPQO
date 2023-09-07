@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
+# from model.TreeConvolution.util import *
 
 import joblib
 from feature import SampleEntity
@@ -50,6 +52,23 @@ def collate_fn(x):
     targets = torch.tensor(targets)
     return trees, targets
 
+class PairDataset(Dataset):
+    def __init__(self, X1, X2, Y1, Y2, Z):
+        self.X1 = X1
+        self.X2 = X2
+        self.Y = []
+        for y1, y2 in zip(Y1, Y2):
+            if y1 <= y2:
+                self.Y.append(1.)
+            else:
+                self.Y.append(0.)
+        self.Z = Z
+
+    def __len__(self):
+        return len(self.X1)
+
+    def __getitem__(self, idx):
+        return self.X1[idx], self.X2[idx], self.Z[idx], self.Y[idx]
 
 def collate_pairwise_fn(x):
     trees1 = []
@@ -62,7 +81,8 @@ def collate_pairwise_fn(x):
         trees2.append(tree2)
         parameters2.append(parameter2)
         labels.append(label)
-    return trees1, trees2, parameters2, labels
+    return trees1, trees2, torch.FloatTensor(np.array(parameters2)), torch.FloatTensor(np.array(labels)).reshape(-1, 1)        
+
 
 
 def transformer(x: SampleEntity):
@@ -93,8 +113,8 @@ class PlanEmbeddingNet(nn.Module):
     def __init__(self, input_feature_dim) -> None:
         super(PlanEmbeddingNet, self).__init__()
         self.input_feature_dim = input_feature_dim
-        self._cuda = False
-        self.device = None
+        # self._cuda = False
+        # self.device = None
 
         self.tree_conv = nn.Sequential(
             BinaryTreeConv(self.input_feature_dim, 256),
@@ -113,12 +133,14 @@ class PlanEmbeddingNet(nn.Module):
         return self.tree_conv(trees)
 
     def build_trees(self, feature):
-        return prepare_trees(feature, transformer, left_child, right_child, cuda=self._cuda, device=self.device)
+        device = next(self.parameters()).device
+        return prepare_trees(feature, transformer, left_child, right_child, device=device)
 
     def cuda(self, device):
-        self._cuda = True
-        self.device = device
-        return super().cuda()
+        # self._cuda = True
+        # self.device = device
+        # return super().cuda()
+        self.to(device)
 
 
 class ParameterEmbeddingNet(nn.Module):
@@ -173,13 +195,14 @@ class ParameterEmbeddingNet(nn.Module):
 
 
 class RankPQOModel():
-    def __init__(self, feature_generator, template_id, preprocessing_infos) -> None:
+    def __init__(self, feature_generator, template_id, preprocessing_infos, device = 'cpu') -> None:
         super(RankPQOModel, self).__init__()
         self._feature_generator = feature_generator
         self._input_feature_dim = None
         self._model_parallel = None
         self._template_id = template_id
         self.preprocessing_infos = preprocessing_infos
+        self.device = device
 
     def load(self, path):
         with open(_input_feature_dim_path(path), "rb") as f:
@@ -222,7 +245,7 @@ class RankPQOModel():
         with open(_input_feature_dim_path(path), "wb") as f:
             joblib.dump(self._input_feature_dim, f)
 
-    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False):
+    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size = 4, epochs = 100):
         assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
         if isinstance(Y1, list):
             Y1 = np.array(Y1)
@@ -236,58 +259,55 @@ class RankPQOModel():
             input_feature_dim = len(X1[0].get_feature())
             print("input_feature_dim:", input_feature_dim)
 
-            self.plan_net = PlanEmbeddingNet(input_feature_dim)
+            self.plan_net = PlanEmbeddingNet(input_feature_dim).to(device)
             self._input_feature_dim = input_feature_dim
-            self.parameter_net = ParameterEmbeddingNet(self.template_id, self.preprocessing_infos)
-            if CUDA:
-                self.plan_net = self.plan_net.cuda(device)
-                self.plan_net = torch.nn.DataParallel(
-                    self.plan_net, device_ids=GPU_LIST)
-                self.plan_net.cuda(device)
-                self.parameter_net = self.parameter_net.cuda(device)
-                self.parameter_net = torch.nn.DataParallel(
-                    self.parameter_net, device_ids=GPU_LIST)
-                self.parameter_net.cuda(device)
+            self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(device)
+            # if CUDA:
+            #     self.plan_net = self.plan_net.cuda(device)
+            #     self.plan_net = torch.nn.DataParallel(
+            #         self.plan_net, device_ids=GPU_LIST)
+            #     self.plan_net.cuda(device)
+            #     self.parameter_net = self.parameter_net.cuda(device)
+            #     self.parameter_net = torch.nn.DataParallel(
+            #         self.parameter_net, device_ids=GPU_LIST)
+            #     self.parameter_net.cuda(device)
 
-        pairs = []
-        for i in range(len(X1)):
-            pairs.append((X1[i], X2[i], Z[i], 1.0 if Y1[i] <= Y2[i] else 0.0))
+        # pairs = []
+        # for i in range(len(X1)):
+        #     pairs.append((X1[i], X2[i], Z[i], 1.0 if Y1[i] <= Y2[i] else 0.0))
 
-        batch_size = 64
-        if CUDA:
-            batch_size = batch_size * len(GPU_LIST)
-
-        dataset = DataLoader(pairs,
+        dataset = PairDataset(X1, X2, Y1, Y2, Z)
+        dataloader = DataLoader(dataset,
                              batch_size=batch_size,
                              shuffle=True,
                              collate_fn=collate_pairwise_fn)
 
-        plan_optimizer = None
-        parameter_optimizer = None
-        if CUDA:
-            plan_optimizer = torch.optim.Adam(self.plan_net.module.parameters())
-            plan_optimizer = nn.DataParallel(plan_optimizer, device_ids=GPU_LIST)
-            parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
-            parameter_optimizer = nn.DataParallel(parameter_optimizer, device_ids=GPU_LIST)
-        else:
-            plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
-            parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
+        # if CUDA:
+        #     plan_optimizer = torch.optim.Adam(self.plan_net.module.parameters())
+        #     plan_optimizer = nn.DataParallel(plan_optimizer, device_ids=GPU_LIST)
+        #     parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
+        #     parameter_optimizer = nn.DataParallel(parameter_optimizer, device_ids=GPU_LIST)
+        # else:
+        plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
+        parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
 
         bce_loss_fn = torch.nn.BCELoss()
 
         losses = []
         start_time = time()
-        for epoch in range(100):
+        for epoch in range(epochs):
             loss_accum = 0
-            for x1, x2, z, label in dataset:
+            for x1, x2, z, label in dataloader:
+                z = z.to(device)
+                label = label.to(device)
 
-                tree_x1, tree_x2 = None, None
-                if CUDA:
-                    tree_x1 = self.plan_net.module.build_trees(x1)
-                    tree_x2 = self.plan_net.module.build_trees(x2)
-                else:
-                    tree_x1 = self.plan_net.build_trees(x1)
-                    tree_x2 = self.plan_net.build_trees(x2)
+                # tree_x1, tree_x2 = None, None
+                # if CUDA:
+                #     tree_x1 = self.plan_net.module.build_trees(x1)
+                #     tree_x2 = self.plan_net.module.build_trees(x2)
+                # else:
+                tree_x1 = self.plan_net.build_trees(x1)
+                tree_x2 = self.plan_net.build_trees(x2)
 
                 # pairwise
                 y_pred_1 = self.plan_net(tree_x1)
@@ -299,24 +319,24 @@ class RankPQOModel():
                 prob_y = torch.sigmoid(distance_1 - distance_2).float()
 
                 # label_y = torch.tensor(np.array(label).reshape(-1, 1))
-                if CUDA:
-                    label_y = label_y.cuda(device)
+                # if CUDA:
+                #     label_y = label_y.cuda(device)
 
-                loss = bce_loss_fn(prob_y, label_y)
+                loss = bce_loss_fn(prob_y.view(-1,1), label)
                 loss_accum += loss.item()
 
-                if CUDA:
-                    plan_optimizer.module.zero_grad()
-                    parameter_optimizer.module.zero_grad()
-                    loss.backward()
-                    plan_optimizer.module.step()
-                    parameter_optimizer.module.step()
-                else:
-                    plan_optimizer.zero_grad()
-                    parameter_optimizer.zero_grad()
-                    loss.backward()
-                    plan_optimizer.step()
-                    parameter_optimizer.step()
+                # if CUDA:
+                #     plan_optimizer.module.zero_grad()
+                #     parameter_optimizer.module.zero_grad()
+                #     loss.backward()
+                #     plan_optimizer.module.step()
+                #     parameter_optimizer.module.step()
+                # else:
+                plan_optimizer.zero_grad()
+                parameter_optimizer.zero_grad()
+                loss.backward()
+                plan_optimizer.step()
+                parameter_optimizer.step()
 
             loss_accum /= len(dataset)
             losses.append(loss_accum)
