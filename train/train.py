@@ -14,7 +14,7 @@ def _param_path(base):
 
 
 def _cost_path(base):
-    return os.path.join(base, "cost_matrix.json")
+    return os.path.join(base, "latency_matrix.json")
 
 
 def _meta_path(base):

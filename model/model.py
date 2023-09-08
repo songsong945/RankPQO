@@ -253,7 +253,8 @@ class RankPQOModel():
 
         self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
         if fist_layer:
-            self.parameter_net.fc1.load_state_dict(torch.load(_fnn_path_first_layer(path, self._template_id), map_location=torch.device(self.device)))
+            self.parameter_net.fc1.load_state_dict(
+                torch.load(_fnn_path_first_layer(path, self._template_id), map_location=torch.device(self.device)))
         state_dicts = torch.load(_fnn_path(path), map_location=torch.device(self.device))
         self.parameter_net.fc2.load_state_dict(state_dicts['fc2'])
         self.parameter_net.fc3.load_state_dict(state_dicts['fc3'])
@@ -348,6 +349,8 @@ class RankPQOModel():
         self.parameter_net.eval()
 
         loss_accum = 0
+        correct_predictions = 0
+        total_predictions = 0
         with torch.no_grad():
             for x1, x2, z, label in dataloader:
                 z = z.to(self.device)
@@ -367,14 +370,20 @@ class RankPQOModel():
                 loss = bce_loss_fn(prob_y.view(-1, 1), label)
                 loss_accum += loss.item()
 
+                predicted_labels = (prob_y > 0.5).float()
+                label = label.squeeze()
+                correct_predictions += (predicted_labels == label).float().sum().item()
+                total_predictions += len(label)
+
         # Compute average loss
         avg_loss = loss_accum / len(dataset)
+        avg_correct_predictions = correct_predictions / total_predictions
 
         # Return to training mode
         self.plan_net.train()
         self.parameter_net.train()
 
-        return avg_loss
+        return avg_loss, avg_correct_predictions
 
     def fit_with_test(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=16, epochs=50):
         assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
@@ -423,6 +432,8 @@ class RankPQOModel():
         start_time = time()
         for epoch in range(epochs):
             loss_accum = 0
+            correct_predictions = 0
+            total_predictions = 0
             for x1, x2, z, label in train_dataloader:
                 z = z.to(self.device)
                 label = label.to(self.device)
@@ -441,6 +452,11 @@ class RankPQOModel():
                 loss = bce_loss_fn(prob_y.view(-1, 1), label)
                 loss_accum += loss.item()
 
+                predicted_labels = (prob_y > 0.5).float()
+                label = label.squeeze()
+                correct_predictions += (predicted_labels == label).float().sum().item()
+                total_predictions += len(label)
+
                 plan_optimizer.zero_grad()
                 parameter_optimizer.zero_grad()
                 loss.backward()
@@ -449,12 +465,16 @@ class RankPQOModel():
 
             loss_accum /= len(train_dataset)
             losses.append(loss_accum)
-
             print("Epoch", epoch, "training loss:", loss_accum)
+            accuracy = correct_predictions / total_predictions
+            print("        training accuracy:", accuracy)
 
-            if epoch % 5 == 0:
-                print("validation loss:", self.evaluate(val_dataset, val_dataloader))
+            if (epoch + 1) % 5 == 0:
+                loss, accuracy = self.evaluate(val_dataset, val_dataloader)
+                print("validation loss:", loss)
+                print("validation accuracy:", accuracy)
 
         print("training time:", time() - start_time, "batch size:", batch_size)
-        print("test loss:", self.evaluate(test_dataset, test_dataloader))
-
+        loss, accuracy = self.evaluate(test_dataset, test_dataloader)
+        print("test loss:", loss)
+        print("test accuracy:", accuracy)
