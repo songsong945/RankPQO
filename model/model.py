@@ -242,7 +242,7 @@ class RankPQOModel():
         self.preprocessing_infos = preprocessing_infos
         self.device = device
 
-    def load(self, path, fist_layer):
+    def load(self, path, fist_layer=0):
         with open(_input_feature_dim_path(path), "rb") as f:
             self._input_feature_dim = joblib.load(f)
 
@@ -341,6 +341,41 @@ class RankPQOModel():
 
             print("Epoch", epoch, "training loss:", loss_accum)
         print("training time:", time() - start_time, "batch size:", batch_size)
+
+    def test(self, X1, X2, Y1, Y2, Z, batch_size=16):
+        assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
+        if isinstance(Y1, list):
+            Y1 = np.array(Y1)
+            Y1 = Y1.reshape(-1, 1)
+        if isinstance(Y2, list):
+            Y2 = np.array(Y2)
+            Y2 = Y2.reshape(-1, 1)
+
+        # Splitting the dataset
+        train_dataset, val_dataset, test_dataset = split_pair_dataset(X1, X2, Y1, Y2, Z)
+
+        train_dataloader = DataLoader(train_dataset,
+                                      batch_size=batch_size,
+                                      shuffle=True,
+                                      collate_fn=collate_pairwise_fn)
+        val_dataloader = DataLoader(val_dataset,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    collate_fn=collate_pairwise_fn)
+        test_dataloader = DataLoader(test_dataset,
+                                     batch_size=batch_size,
+                                     shuffle=True,
+                                     collate_fn=collate_pairwise_fn)
+
+        loss, accuracy = self.evaluate(train_dataset, train_dataloader)
+        print("train loss:", loss)
+        print("train accuracy:", accuracy)
+        loss, accuracy = self.evaluate(val_dataset, val_dataloader)
+        print("validation loss:", loss)
+        print("validation accuracy:", accuracy)
+        loss, accuracy = self.evaluate(test_dataset, test_dataloader)
+        print("test loss:", loss)
+        print("test accuracy:", accuracy)
 
     def evaluate(self, dataset, dataloader):
         bce_loss_fn = torch.nn.BCELoss()

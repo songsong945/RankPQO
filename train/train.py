@@ -67,16 +67,20 @@ def get_training_pair(candidate_plan, plan, param_key, cost):
     X1, X2, Y1, Y2 = [], [], [], []
 
     i = 0
+    count = 0
     while i < len(candidate_plan) - 1:
         s1 = candidate_plan[i]
         j = i + 1
         while j < len(candidate_plan):
+            count += 1
             s2 = candidate_plan[j]
             X1.append(plan[s1])
             Y1.append(cost[param_key][s1])
             X2.append(plan[s2])
             Y2.append(cost[param_key][s2])
             j += 1
+            if count >= 20:
+                return X1, X2, Y1, Y2
         i += 1
     return X1, X2, Y1, Y2
 
@@ -105,6 +109,8 @@ def load_training_data(training_data_file, template_id):
         X2 += x2
         Y1 += y1
         Y2 += y2
+        if len(X1) >= 20000:
+            break
 
     params, preprocess_info = get_param_info(meta)
 
@@ -137,8 +143,116 @@ def training_pairwise(training_data_file, model_path, template_id, device, pre_t
     rank_PQO_model.save(model_path)
 
 
+def training_baseline(training_data, model_path, device):
+    # all_folders = [f for f in os.listdir(training_data) if os.path.isdir(os.path.join(training_data, f))]
+    all_folders = [
+        "30c", "16c", "21c", "9a", "13b", "13c", "15a", "4a", "23b", "33a", "27b", "2b", "31a"
+    ]
+
+    pre_trained = 0
+    for folder in all_folders:
+        print(f"Training for folder: {folder}")
+
+        Z, X1, X2, Y1, Y2, params, preprocess_info = load_training_data(training_data, folder)
+
+        if pre_trained:
+            rank_PQO_model = RankPQOModel(None, folder, preprocess_info, device=device)
+            rank_PQO_model.load(model_path)
+            feature_generator = rank_PQO_model._feature_generator
+        else:
+            feature_generator = FeatureGenerator()
+            feature_generator.fit(X1 + X2)
+
+        X1 = feature_generator.transform(X1)
+        X2 = feature_generator.transform(X2)
+        Z = feature_generator.transform_z(Z, params, preprocess_info)
+        print("Training data set size = " + str(len(X1)))
+
+        if not pre_trained:
+            rank_PQO_model = RankPQOModel(feature_generator, folder, preprocess_info, device=device)
+
+        rank_PQO_model.fit_with_test(X1, X2, Y1, Y2, Z, pre_trained, 16, 50)
+
+        rank_PQO_model.save(model_path)
+
+        pre_trained = 1
+
+        print(f"Finished training for folder: {folder}")
+
+    for folder in all_folders:
+        template_id = folder
+
+        Z, X1, X2, Y1, Y2, params, preprocess_info = load_training_data(training_data, template_id)
+        rank_PQO_model = RankPQOModel(None, template_id, preprocess_info, device=device)
+        rank_PQO_model.load(model_path)
+        feature_generator = rank_PQO_model._feature_generator
+        X1 = feature_generator.transform(X1)
+        X2 = feature_generator.transform(X2)
+        Z = feature_generator.transform_z(Z, params, preprocess_info)
+        print(f"Test results for {folder}")
+        rank_PQO_model.test(X1, X2, Y1, Y2, Z)
+
+
+def alternating_training(training_data, model_path, device, epochs, epoch_step):
+    # all_folders = [f for f in os.listdir(training_data) if os.path.isdir(os.path.join(training_data, f))]
+    all_folders = [
+        "30c", "16c", "21c", "9a", "13b", "13c", "15a", "4a", "23b", "33a", "27b", "2b", "31a"
+    ]
+
+    all_epochs = [epoch_step for _ in range(epochs // epoch_step)] + (
+        [epochs % epoch_step] if epochs % epoch_step else [])
+
+    pre_trained = 0
+    epoch_counter = 0
+    for epoch in all_epochs:
+        epoch_counter += epoch
+        print(f"Training for total epochs: {epoch_counter}/{epochs}")
+
+        for folder in all_folders:
+            print(f"Training for folder: {folder}")
+
+            Z, X1, X2, Y1, Y2, params, preprocess_info = load_training_data(training_data, folder)
+
+            if pre_trained:
+                rank_PQO_model = RankPQOModel(None, folder, preprocess_info, device=device)
+                rank_PQO_model.load(model_path)
+                feature_generator = rank_PQO_model._feature_generator
+            else:
+                feature_generator = FeatureGenerator()
+                feature_generator.fit(X1 + X2)
+
+            X1 = feature_generator.transform(X1)
+            X2 = feature_generator.transform(X2)
+            Z = feature_generator.transform_z(Z, params, preprocess_info)
+
+            if not pre_trained:
+                rank_PQO_model = RankPQOModel(feature_generator, folder, preprocess_info, device=device)
+
+            rank_PQO_model.fit_with_test(X1, X2, Y1, Y2, Z, pre_trained, 16, epoch)
+
+            rank_PQO_model.save(model_path)
+
+            pre_trained = 1
+
+            print(f"Finished training for folder: {folder}")
+
+    for folder in all_folders:
+        template_id = folder
+
+        Z, X1, X2, Y1, Y2, params, preprocess_info = load_training_data(training_data, template_id)
+        rank_PQO_model = RankPQOModel(None, template_id, preprocess_info, device=device)
+        rank_PQO_model.load(model_path)
+        feature_generator = rank_PQO_model._feature_generator
+        X1 = feature_generator.transform(X1)
+        X2 = feature_generator.transform(X2)
+        Z = feature_generator.transform_z(Z, params, preprocess_info)
+        print(f"Test results for {folder}")
+        rank_PQO_model.test(X1, X2, Y1, Y2, Z)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Model training helper")
+    parser.add_argument("--function", type=str)
     parser.add_argument("--training_data", type=str)
     parser.add_argument("--model_path", type=str)
     parser.add_argument("--template_id", type=str)
@@ -147,6 +261,11 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default='cpu')
 
     args = parser.parse_args()
+
+    function = None
+    if args.function is not None:
+        function = args.function
+    print("function:", function)
 
     training_data = None
     if args.training_data is not None:
@@ -175,4 +294,9 @@ if __name__ == "__main__":
 
     print("Device: ", args.device)
 
-    training_pairwise(training_data, model_path, template_id, args.device, pre_trained, first_layer)
+    if function == "training_baseline":
+        training_baseline(training_data, model_path, args.device)
+    elif function == "alternating_training":
+        alternating_training(training_data, model_path, args.device, 50, 5)
+    else:
+        training_pairwise(training_data, model_path, template_id, args.device, pre_trained, first_layer)
