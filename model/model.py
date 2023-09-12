@@ -253,8 +253,9 @@ class RankPQOModel():
 
         self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
         if fist_layer:
-            self.parameter_net.fc1.load_state_dict(
-                torch.load(_fnn_path_first_layer(path, self._template_id), map_location=torch.device(self.device)))
+            state_dicts = torch.load(_fnn_path_first_layer(path, self._template_id), map_location=torch.device(self.device))
+            self.parameter_net.embed_layers.load_state_dict(state_dicts['embed_layer'])
+            self.parameter_net.fc1.load_state_dict(state_dicts['fc1'])
         state_dicts = torch.load(_fnn_path(path), map_location=torch.device(self.device))
         self.parameter_net.fc2.load_state_dict(state_dicts['fc2'])
         self.parameter_net.fc3.load_state_dict(state_dicts['fc3'])
@@ -267,7 +268,10 @@ class RankPQOModel():
         os.makedirs(path, exist_ok=True)
 
         torch.save(self.plan_net.state_dict(), _nn_path(path))
-        torch.save(self.parameter_net.fc1.state_dict(), _fnn_path_first_layer(path, self._template_id))
+        torch.save({
+            'embed_layer': self.parameter_net.embed_layers.state_dict(),
+            'fc1': self.parameter_net.fc1.state_dict()
+        }, _fnn_path_first_layer(path, self._template_id))
         torch.save({
             'fc2': self.parameter_net.fc2.state_dict(),
             'fc3': self.parameter_net.fc3.state_dict()
