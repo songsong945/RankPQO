@@ -3,25 +3,80 @@ import json
 import os
 import configure
 
-def generate_hints_from_plan(plan, alias):
-    # Recursively search the plan for a specific alias and return its estimated rows
-    def search_plan_for_alias(node, alias):
-        if "Relation Name" in node and node["Alias"] == alias:
-            return node["Plan Rows"]
-        if "Plans" in node:
-            for child in node["Plans"]:
-                rows = search_plan_for_alias(child, alias)
-                if rows:
-                    return rows
-        return None
+import numpy as np
 
+
+def search_plan_for_alias(node, alias):
+    if "Relation Name" in node and node["Alias"] == alias:
+        return node["Plan Rows"]
+    if "Plans" in node:
+        for child in node["Plans"]:
+            rows = search_plan_for_alias(child, alias)
+            if rows:
+                return rows
+    return None
+
+
+def get_row_count_candidates(row_count, exponent_base, exponent_range):
+    min_exponent = -1 * min(np.log(row_count) // np.log(exponent_base), exponent_range)
+    max_exponent = min_exponent + 2 * exponent_range
+    candidates = row_count * np.power(float(exponent_base), np.arange(min_exponent, max_exponent + 1))
+    candidates = np.array(list(map(lambda x: max(int(x), 1), candidates)))
+    assert len(set(candidates)) == len(candidates)
+    return candidates
+
+
+def get_row_count_candidates_for_multiple(row_counts_dict, exponent_base=10, exponent_range=3):
+    return {alias: get_row_count_candidates(row_count, exponent_base, exponent_range)
+            for alias, row_count in row_counts_dict.items()}
+
+
+def generate_hints_from_plan(plan, alias, exponent_base=10, exponent_range=2):
     rows = search_plan_for_alias(plan["Plan"], alias)
     if rows:
-        double_rows_hint = f"/*+ Rows({rows * 2}) */"
-        half_rows_hint = f"/*+ Rows({rows / 2}) */"
-        return [double_rows_hint, half_rows_hint]
+        candidates = get_row_count_candidates(rows, exponent_base, exponent_range)
+        hints = [f"/*+ Rows({alias}, {candidate}) */" for candidate in candidates]
+        return hints
     else:
         return []
+
+
+def search_plan_for_aliases(node, aliases):
+    result = {alias: None for alias in aliases}
+
+    if "Relation Name" in node and node["Alias"] in aliases:
+        result[node["Alias"]] = node["Plan Rows"]
+
+    if "Plans" in node:
+        for child in node["Plans"]:
+            child_result = search_plan_for_aliases(child, aliases)
+            for alias, rows in child_result.items():
+                if rows is not None:
+                    result[alias] = rows
+
+    return result
+
+
+def generate_hints_from_plan_with_sampling(plan, aliases, k=5):
+    rows_dict = search_plan_for_aliases(plan["Plan"], aliases)
+    candidates_dict = get_row_count_candidates_for_multiple(rows_dict)
+
+    hints_list = []
+    seen_combinations = set()
+
+    for _ in range(k):
+        while True:
+            sampled_counts = {alias: np.random.choice(candidates) for alias, candidates in candidates_dict.items()}
+            hashable_combination = tuple((k, v) for k, v in sorted(sampled_counts.items()))
+            if hashable_combination not in seen_combinations:
+                seen_combinations.add(hashable_combination)
+                break
+
+        hint_content = '\n'.join([f"Rows({alias}, {row_count})" for alias, row_count in sampled_counts.items()])
+        hint = f"/*+ {hint_content} */"
+        hints_list.append(hint)
+
+    return hints_list
 
 
 def connect_to_pg():
@@ -61,16 +116,18 @@ def generate_plans_for_query(meta_data_path, parameter_path):
     idx = 0
     for params in enumerate(parameters_list.values()):
 
-        plan = fetch_execution_plan(connection, meta_data['template'], params)
+        plan = fetch_execution_plan(connection, meta_data['template'], params[1])
         idx += 1
         plans[f"plan {idx}"] = plan
 
-        for alias in table_aliases:
-            hints = generate_hints_from_plan(plan, alias)
-            for hint in hints:
-                idx += 1
-                modified_plan_with_hint = fetch_execution_plan(connection, hint+" "+meta_data['template'], params)
-                plans[f"modified {idx}"] = modified_plan_with_hint
+        # for alias in table_aliases:
+        #     hints = generate_hints_from_plan(plan, alias)
+        hints = generate_hints_from_plan_with_sampling(plan, table_aliases)
+        for hint in hints:
+            idx += 1
+            modified_plan_with_hint = fetch_execution_plan(connection, hint + " " + meta_data['template'],
+                                                           params[1])
+            plans[f"modified {idx}"] = modified_plan_with_hint
 
     connection.close()
     return plans
@@ -86,10 +143,11 @@ def save_execution_plans_for_all(data_directory):
             print(f"Processing: {meta_data_path}")
             plans = generate_plans_for_query(meta_data_path, parameter_path)
 
-            with open(os.path.join(subdir, "all_plans.json"), 'w') as f:
+            with open(os.path.join(subdir, "all_plans_by_card.json"), 'w') as f:
                 json.dump(plans, f, indent=4)
 
 
 if __name__ == "__main__":
     meta_data_path = '../training_data/JOB/'
+    # meta_data_path = '../training_data/example_one/'
     save_execution_plans_for_all(meta_data_path)
