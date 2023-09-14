@@ -73,8 +73,8 @@ def deduplicate_plans(plan_file_path):
     seen_hashes = set()
 
     for plan_name, plan in plans.items():
-        # representation = get_structural_representation(plan['Plan'])
-        representation = generate_hint_from_plan(plan)
+        representation = get_structural_representation(plan['Plan'])
+        # representation = generate_hint_from_plan(plan)
         hash_val = compute_hash(representation)
         if hash_val not in seen_hashes:
             seen_hashes.add(hash_val)
@@ -85,17 +85,22 @@ def deduplicate_plans(plan_file_path):
 
 def process_all_plans(data_directory):
     for subdir, _, _ in os.walk(data_directory):
-        plan_file_path = os.path.join(subdir, "all_plans_by_card.json")
+
+        if 'a' not in os.path.basename(subdir):
+            continue
+
+        plan_file_path = os.path.join(subdir, "all_plans_by_join_order.json")
 
         if os.path.isfile(plan_file_path):
             print(f"Processing {plan_file_path}...")
             unique_plans = deduplicate_plans(plan_file_path)
-            print(f"The number of unique plans: {len(plan_file_path)}")
+            print(f"The number of unique plans: {len(unique_plans)}")
 
-            with open(os.path.join(subdir, "plan_by_card.json"), 'w') as out_file:
+            with open(os.path.join(subdir, "plan_by_join_order.json"), 'w') as out_file:
                 json.dump(unique_plans, out_file, indent=4)
 
 
 if __name__ == "__main__":
     meta_data_path = '../training_data/JOB/'
+    # meta_data_path = '../training_data/example_one/'
     process_all_plans(meta_data_path)

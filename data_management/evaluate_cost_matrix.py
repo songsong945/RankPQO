@@ -1,4 +1,5 @@
 import os
+import random
 import time
 
 import psycopg2
@@ -105,10 +106,17 @@ def evaluate_plans_for_parameters(connection, meta_data, plans, parameters_data)
     template = meta_data["template"]
     results = {}
 
-    for param_key, param_values in parameters_data.items():
+    sampled_plan_keys = random.sample(list(plans.keys()), min(100, len(plans)))
+    sampled_param_keys = random.sample(list(parameters_data.keys()), min(100, len(parameters_data)))
+
+    print(f"{len(sampled_param_keys)} parameter vectors and {len(sampled_plan_keys)} plans")
+
+    for param_key in sampled_param_keys:
+        param_values = parameters_data[param_key]
         results[param_key] = {}
-        # print(f"    Processing {param_key}...")
-        for plan_key, plan in plans.items():
+
+        for plan_key in sampled_plan_keys:
+            plan = plans[plan_key]
             plan_hint = generate_hint_from_plan(plan)
             query_with_hint = f"/*+ {plan_hint} */ " + template
 
@@ -139,6 +147,7 @@ def evaluate_all(data_directory):
 
             costs = evaluate_plans_for_parameters(connection, meta_data, plans, parameters)
 
+
             with open(os.path.join(subdir, "latency_matrix.json"), 'w') as f_costs:
                 json.dump(costs, f_costs, indent=4)
 
@@ -151,7 +160,7 @@ def evaluate_directory(subdir):
     with open(os.path.join(subdir, "meta_data.json"), 'r') as f_meta:
         meta_data = json.load(f_meta)
 
-    with open(os.path.join(subdir, "plan.json"), 'r') as f_plans:
+    with open(os.path.join(subdir, "plan_by_join_order.json"), 'r') as f_plans:
         plans = json.load(f_plans)
 
     with open(os.path.join(subdir, "parameter.json"), 'r') as f_params:
@@ -171,11 +180,10 @@ def evaluate_all_mutil_process(data_directory):
     directories_to_process = []
 
     for subdir, _, files in os.walk(data_directory):
-        if "meta_data.json" in files and "plan.json" in files and "parameter.json" in files:
+        if 'a' in os.path.basename(subdir) and "meta_data.json" in files and "plan_by_join_order.json" in files and "parameter.json" in files:
             directories_to_process.append(subdir)
 
-    # Create a Pool with the desired number of processes
-    with Pool(processes=8) as pool:  # for example, 4 processes
+    with Pool(processes=12) as pool:
         pool.map(evaluate_directory, directories_to_process)
 
 
