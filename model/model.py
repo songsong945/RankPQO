@@ -183,6 +183,62 @@ class PlanEmbeddingNet(nn.Module):
         self.to(device)
 
 
+class PlanEmbeddingNetPredVersion(nn.Module):
+    def __init__(self, input_feature_dim, max_predicate_len = 30, max_col = 200, max_op = 20) -> None:
+        super(PlanEmbeddingNetPredVersion, self).__init__()
+        self.input_feature_dim = input_feature_dim
+        self.max_predicate_len = max_predicate_len
+        # self._cuda = False
+        # self.device = None
+
+        self.col_embed = nn.Embedding(max_col, 32)
+        self.op_embed = nn.Embedding(max_op, 32)
+
+        self.tree_conv = nn.Sequential(
+            BinaryTreeConv(self.input_feature_dim + 64 - 2 * self.max_predicate_len - 1, 256),
+            TreeLayerNorm(),
+            TreeActivation(nn.LeakyReLU()),
+            BinaryTreeConv(256, 128),
+            TreeLayerNorm(),
+            TreeActivation(nn.LeakyReLU()),
+            BinaryTreeConv(128, 64),
+            TreeLayerNorm(),
+            DynamicPooling(),
+            nn.Linear(64, 32)
+        )
+
+    def forward(self, trees):
+        device = next(self.parameters()).device
+        feature, indexes = trees
+        # Batch x Feature_Dim x Nodes --> Batch x Nodes x Feature_Dim
+        b, d, n = feature.size()
+        feature = feature.transpose(1,2).view(b*n, d)
+
+        other_len = self.input_feature_dim - 2 * self.max_predicate_len - 1
+        others, columns, ops, length = \
+            torch.split(feature,(other_len, \
+                self.max_predicate_len,self.max_predicate_len,1), dim = -1)
+
+        col_embed = self.col_embed(columns.long())
+        ops_embed = self.op_embed(ops.long())
+        concat = torch.cat((col_embed,ops_embed), dim = -1)
+
+        mask = (torch.arange(self.max_predicate_len).expand(len(length), self.max_predicate_len) < length.to('cpu')).to(device)
+        concat[~mask] = 0.
+
+        total = torch.sum(concat, dim = 1)
+
+        collate_feature = torch.cat((others, total), dim=-1).view(b, n, -1).transpose(1,2) # shift back
+
+        # print(other_len, length)
+        # print(collate_feature.size(), indexes.size(), others.size())
+        return self.tree_conv((collate_feature, indexes))
+
+    def build_trees(self, feature):
+        device = next(self.parameters()).device
+        return prepare_trees(feature, transformer, left_child, right_child, device=device)
+
+
 class ParameterEmbeddingNet(nn.Module):
     def __init__(self, template_id, preprocessing_infos, embed_dim=32):
         super(ParameterEmbeddingNet, self).__init__()
@@ -241,6 +297,9 @@ class RankPQOModel():
         self._template_id = template_id
         self.preprocessing_infos = preprocessing_infos
         self.device = device
+
+        self.columns = None
+        self.ops = None
 
     def load(self, path, fist_layer=0):
         with open(_input_feature_dim_path(path), "rb") as f:
@@ -346,6 +405,72 @@ class RankPQOModel():
             print("Epoch", epoch, "training loss:", loss_accum)
         print("training time:", time() - start_time, "batch size:", batch_size)
 
+
+    def fit_predicate_model(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=16, epochs=50):
+            assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
+            if isinstance(Y1, list):
+                Y1 = np.array(Y1)
+                Y1 = Y1.reshape(-1, 1)
+            if isinstance(Y2, list):
+                Y2 = np.array(Y2)
+                Y2 = Y2.reshape(-1, 1)
+
+            # # determine the initial number of channels
+            if not pre_training:
+                input_feature_dim = len(X1[0].get_feature())
+                print("input_feature_dim:", input_feature_dim)
+
+                self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+
+                self._input_feature_dim = input_feature_dim
+                self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
+
+            dataset = PairDataset(X1, X2, Y1, Y2, Z)
+            dataloader = DataLoader(dataset,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    collate_fn=collate_pairwise_fn)
+
+            plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
+            parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
+
+            bce_loss_fn = torch.nn.BCELoss()
+
+            losses = []
+            start_time = time()
+            for epoch in range(epochs):
+                loss_accum = 0
+                for x1, x2, z, label in dataloader:
+                    z = z.to(self.device)
+                    label = label.to(self.device)
+
+                    tree_x1 = self.plan_net.build_trees(x1)
+                    tree_x2 = self.plan_net.build_trees(x2)
+
+                    # pairwise
+                    y_pred_1 = self.plan_net(tree_x1)
+                    y_pred_2 = self.plan_net(tree_x2)
+                    z_pred = self.parameter_net(z)
+                    distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
+                    distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
+                    prob_y = torch.sigmoid(distance_1 - distance_2).float()
+
+                    loss = bce_loss_fn(prob_y.view(-1, 1), label)
+                    loss_accum += loss.item()
+
+                    plan_optimizer.zero_grad()
+                    parameter_optimizer.zero_grad()
+                    loss.backward()
+                    plan_optimizer.step()
+                    parameter_optimizer.step()
+
+                loss_accum /= len(dataset)
+                losses.append(loss_accum)
+
+                print("Epoch", epoch, "training loss:", loss_accum)
+            print("training time:", time() - start_time, "batch size:", batch_size)
+
+
     def test(self, X1, X2, Y1, Y2, Z, batch_size=16):
         assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
         if isinstance(Y1, list):
@@ -435,7 +560,8 @@ class RankPQOModel():
 
         # # determine the initial number of channels
         if not pre_training:
-            input_feature_dim = len(X1[0].get_feature())
+            # input_feature_dim = len(X1[0].get_feature())
+            input_feature_dim = X1[0].get_feature_len()
             print("input_feature_dim:", input_feature_dim)
 
             self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
