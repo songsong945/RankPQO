@@ -289,7 +289,7 @@ class ParameterEmbeddingNet(nn.Module):
 
 
 class RankPQOModel():
-    def __init__(self, feature_generator, template_id, preprocessing_infos, device) -> None:
+    def __init__(self, feature_generator, template_id, preprocessing_infos, device, is_predict=True) -> None:
         super(RankPQOModel, self).__init__()
         self._feature_generator = feature_generator
         self._input_feature_dim = None
@@ -297,6 +297,7 @@ class RankPQOModel():
         self._template_id = template_id
         self.preprocessing_infos = preprocessing_infos
         self.device = device
+        self.is_predict = is_predict
 
         self.columns = None
         self.ops = None
@@ -305,7 +306,10 @@ class RankPQOModel():
         with open(_input_feature_dim_path(path), "rb") as f:
             self._input_feature_dim = joblib.load(f)
 
-        self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
+        if self.is_predict:
+            self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
+        else:
+            self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
         self.plan_net.load_state_dict(torch.load(
             _nn_path(path), map_location=torch.device(self.device)))
         self.plan_net.eval()
@@ -355,7 +359,10 @@ class RankPQOModel():
             input_feature_dim = len(X1[0].get_feature())
             print("input_feature_dim:", input_feature_dim)
 
-            self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+            if self.is_predict:
+                self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
+            else:
+                self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
 
             self._input_feature_dim = input_feature_dim
             self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
@@ -420,7 +427,10 @@ class RankPQOModel():
                 input_feature_dim = len(X1[0].get_feature())
                 print("input_feature_dim:", input_feature_dim)
 
-                self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+                if self.is_predict:
+                    self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
+                else:
+                    self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
 
                 self._input_feature_dim = input_feature_dim
                 self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
@@ -564,7 +574,10 @@ class RankPQOModel():
             input_feature_dim = X1[0].get_feature_len()
             print("input_feature_dim:", input_feature_dim)
 
-            self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+            if self.is_predict:
+                self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
+            else:
+                self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
 
             self._input_feature_dim = input_feature_dim
             self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
