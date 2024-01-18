@@ -44,7 +44,7 @@ def _meta_path(base):
 
 
 def _plan_path(base):
-    return os.path.join(base, "plan.json")
+    return os.path.join(base, "plan_by_join_order.json")
 
 
 def get_param_info(meta):
@@ -123,7 +123,8 @@ def load_training_data(training_data_file, template_id):
     with open(_plan_path(path), 'r') as f:
         plan = json.load(f)
 
-    for param_key, param_values in param.items():
+    for param_key, _ in cost.items():
+        param_values = param[param_key]
         candidate_plan = list(cost[param_key].keys())
         x1, x2, y1, y2 = get_training_pair(candidate_plan, plan, param_key, cost)
         Z += [list(param_values) for _ in range(len(x1))]
@@ -261,7 +262,7 @@ def training_baseline(training_data, model_path, device):
 def alternating_training(training_data, model_path, device, epochs, epoch_step):
     # all_folders = [f for f in os.listdir(training_data) if os.path.isdir(os.path.join(training_data, f))]
     all_folders = [
-        "30c", "16c", "21c", "9a", "13b", "13c", "15a", "4a", "23b", "33a", "27b", "2b", "31a"
+        "15a", "4a", "33a", "31a"
     ]
 
     all_epochs = [epoch_step for _ in range(epochs // epoch_step)] + (
@@ -321,7 +322,7 @@ def alternating_training(training_data, model_path, device, epochs, epoch_step):
 def test(training_data, model_path, device, is_share):
     # all_folders = [f for f in os.listdir(training_data) if os.path.isdir(os.path.join(training_data, f))]
     all_folders = [
-        "30c", "16c", "21c", "9a", "13b", "13c", "15a", "4a", "23b", "33a", "27b", "2b", "31a"
+        "15a", "4a", "33a", "31a"
     ]
     for folder in all_folders:
         template_id = folder

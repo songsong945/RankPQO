@@ -1,12 +1,23 @@
 import os
 import random
 import time
+import re
 
 import psycopg2
+from psycopg2 import errors
 import json
 
-import configure
+
 from multiprocessing import Pool
+from tqdm.contrib.concurrent import process_map
+
+try:
+    import configure
+except ImportError:
+    from data_management import configure
+
+
+time_regex = re.compile(r'Execution Time: ([\d\.]+) ms')
 
 
 def connect_to_pg():
@@ -15,7 +26,8 @@ def connect_to_pg():
         user=configure.user,
         password=configure.password,
         host=configure.host,
-        port=configure.port
+        port=configure.port,
+        options='-c statement_timeout=50000'
     )
     return connection
 
@@ -80,7 +92,7 @@ def fetch_plan_cost(connection, query_with_hint, parameters):
     cursor.execute("SET max_parallel_workers_per_gather TO 0;")
 
     query_with_hint = cursor.mogrify(query_with_hint, parameters).decode()
-    cursor.execute(f"EXPLAIN (FORMAT JSON) {query_with_hint}")
+    cursor.execute(query_with_hint)
     plan = cursor.fetchone()
     cursor.close()
     cost = plan[0][0]['Plan']['Total Cost']
@@ -93,23 +105,76 @@ def fetch_actual_latency(connection, query_with_hint, parameters):
 
     query_with_hint = cursor.mogrify(query_with_hint, parameters).decode()
 
-    start_time = time.time()
-    cursor.execute(query_with_hint)
-    end_time = time.time()
+    #print(query_with_hint)
+
+    try:
+        # start_time = time.time()
+        cursor.execute(query_with_hint)
+        # end_time = time.time()
+        explain_analyze_result = cursor.fetchall()
+
+        latency = 50000.0
+        # for row in explain_analyze_result:
+        #     print(row[0])
+        #     print(type(row[0]))
+        #     match = time_regex.search(row[0][0])
+        #     if match:
+        #         latency = float(match.group(1))
+        #         break
+    except errors.QueryCanceledError as e:
+        connection.rollback()
+        print("Query cancelled due to statement timeout.")
+        return 50000.0
 
     cursor.close()
-    latency = end_time - start_time
+    # latency = end_time - start_time
     return latency
+
+
+def get_counter_example(meta_data, plans, parameters_data):
+    template = meta_data["template"]
+    results = {}
+
+    sampled_plan_keys = list(plans.keys())
+    sampled_param_keys = list(parameters_data.keys())
+
+    # print(f"{len(sampled_param_keys)} parameter vectors and {len(sampled_plan_keys)} plans")
+    i = 0
+
+    for param_key in sampled_param_keys:
+        param_values = parameters_data[param_key]
+        results[param_key] = {}
+
+        for plan_key in sampled_plan_keys:
+            connection = connect_to_pg()
+            plan = plans[plan_key]
+            plan_hint = generate_hint_from_plan(plan)
+            # query_with_hint = f"/*+ {plan_hint} */ EXPLAIN ANALYZE " + template
+            query_with_hint = f"/*+ {plan_hint} */ EXPLAIN (FORMAT JSON) " + template
+
+            query_with_hint = query_with_hint.format(*param_values)
+
+            # cost = fetch_plan_cost(connection, query_with_hint, param_values)
+            st = time.time()
+            cost = fetch_actual_latency(connection, query_with_hint, param_values)
+            ed = time.time()
+            results[param_key][plan_key] = ed - st
+            connection.close()
+            # print(f"count = {i}")
+            i += 1
+
+    return results
 
 
 def evaluate_plans_for_parameters(connection, meta_data, plans, parameters_data):
     template = meta_data["template"]
     results = {}
 
-    sampled_plan_keys = random.sample(list(plans.keys()), min(100, len(plans)))
-    sampled_param_keys = random.sample(list(parameters_data.keys()), min(100, len(parameters_data)))
+    sampled_plan_keys = random.sample(list(plans.keys()), len(plans))
+    sampled_param_keys = random.sample(list(parameters_data.keys()), 200)
 
-    print(f"{len(sampled_param_keys)} parameter vectors and {len(sampled_plan_keys)} plans")
+    # print(f"{len(sampled_param_keys)} parameter vectors and {len(sampled_plan_keys)} plans")
+    i = 0
 
     for param_key in sampled_param_keys:
         param_values = parameters_data[param_key]
@@ -118,13 +183,16 @@ def evaluate_plans_for_parameters(connection, meta_data, plans, parameters_data)
         for plan_key in sampled_plan_keys:
             plan = plans[plan_key]
             plan_hint = generate_hint_from_plan(plan)
-            query_with_hint = f"/*+ {plan_hint} */ " + template
+            # query_with_hint = f"/*+ {plan_hint} */ EXPLAIN ANALYZE " + template
+            query_with_hint = f"/*+ {plan_hint} */ EXPLAIN (FORMAT JSON) " + template
 
             query_with_hint = query_with_hint.format(*param_values)
 
-            # cost = fetch_plan_cost(connection, query_with_hint, param_values)
-            cost = fetch_actual_latency(connection, query_with_hint, param_values)
+            cost = fetch_plan_cost(connection, query_with_hint, param_values)
+            # cost = fetch_actual_latency(connection, query_with_hint, param_values)
             results[param_key][plan_key] = cost
+            # print(f"count = {i}")
+            i += 1
 
     return results
 
@@ -147,8 +215,7 @@ def evaluate_all(data_directory):
 
             costs = evaluate_plans_for_parameters(connection, meta_data, plans, parameters)
 
-
-            with open(os.path.join(subdir, "latency_matrix.json"), 'w') as f_costs:
+            with open(os.path.join(subdir, "cost_test.json"), 'w') as f_costs:
                 json.dump(costs, f_costs, indent=4)
 
     connection.close()
@@ -160,18 +227,20 @@ def evaluate_directory(subdir):
     with open(os.path.join(subdir, "meta_data.json"), 'r') as f_meta:
         meta_data = json.load(f_meta)
 
-    with open(os.path.join(subdir, "plan_by_join_order.json"), 'r') as f_plans:
+    with open(os.path.join(subdir, "plan_pg.json"), 'r') as f_plans:
         plans = json.load(f_plans)
 
-    with open(os.path.join(subdir, "parameter.json"), 'r') as f_params:
+    with open(os.path.join(subdir, "parameter_new.json"), 'r') as f_params:
         parameters = json.load(f_params)
 
     print(f"Processing {subdir}...")
 
     costs = evaluate_plans_for_parameters(connection, meta_data, plans, parameters)
 
-    with open(os.path.join(subdir, "latency_matrix.json"), 'w') as f_costs:
+    with open(os.path.join(subdir, "cost_matrix_pg.json"), 'w') as f_costs:
         json.dump(costs, f_costs, indent=4)
+
+    print(f"Finished {subdir}...")
 
     connection.close()
 
@@ -179,14 +248,59 @@ def evaluate_directory(subdir):
 def evaluate_all_mutil_process(data_directory):
     directories_to_process = []
 
+    # directories_to_process.append(data_directory + '14a')
+    # # directories_to_process.append(data_directory + '18a')
+    # directories_to_process.append(data_directory + '20a')
+    # # directories_to_process.append(data_directory + '22a')
+
     for subdir, _, files in os.walk(data_directory):
-        if 'a' in os.path.basename(subdir) and "meta_data.json" in files and "plan_by_join_order.json" in files and "parameter.json" in files:
+        if ('a' in os.path.basename(subdir) and "meta_data.json" in files and "all_plans_by_hybrid_new.json" in files
+                and "parameter_new.json" in files):
             directories_to_process.append(subdir)
 
-    with Pool(processes=12) as pool:
+
+
+    with Pool(processes=16) as pool:
         pool.map(evaluate_directory, directories_to_process)
 
 
 if __name__ == "__main__":
-    meta_data_path = '../training_data/JOB/'
-    evaluate_all_mutil_process(meta_data_path)
+    # meta_data_path = '../training_data/JOB/'
+    # start_time = time.time()
+    # evaluate_all_mutil_process(meta_data_path)
+    # end_time = time.time()
+    # print(end_time-start_time)
+    data_path = '../training_data/JOB/20a/'
+
+    with open(os.path.join(data_path, "meta_data.json"), 'r') as f_meta:
+        meta_data = json.load(f_meta)
+
+    with open(os.path.join(data_path, "all_plans_by_hybrid_new.json"), 'r') as f_plans:
+        plans = json.load(f_plans)
+
+    parameters = {"parameter 1": [
+        "cast",
+        "complete",
+        "Jenn's Grandmother",
+        "drunk",
+        "River Village Guard #1",
+        "movie",
+        "1885"
+    ],
+    "parameter 2": [
+        "cast",
+        "complete",
+        "G\u00f6zde Barim",
+        "Charles Griffey",
+        "Church child",
+        "movie",
+        "2006"
+    ]}
+
+
+    results = get_counter_example(meta_data,plans,parameters)
+
+    with open(os.path.join(data_path, "counter.json"), 'w') as f_costs:
+        json.dump(results, f_costs, indent=4)
+
+

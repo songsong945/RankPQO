@@ -52,11 +52,10 @@ def generate_parameters_for_all(data_directory):
         parameter_output_path = os.path.join(subdir, "parameter.json")
 
         # 检查meta_data.json是否在子目录中
-        if os.path.isfile(meta_data_path):
-            enumerate_parameters_for_meta_data(meta_data_path, parameter_output_path)
-
+        if os.path.isfile(meta_data_path) and 'a' in os.path.basename(subdir):
             # 输出日志
-            print(f"Processed parameters for query at {subdir}")
+            print(f"Processing parameters for query at {subdir}")
+            enumerate_parameters_for_meta_data(meta_data_path, parameter_output_path)
 
 
 if __name__ == "__main__":

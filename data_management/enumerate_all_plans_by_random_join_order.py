@@ -1,4 +1,5 @@
 import random
+import time
 
 import psycopg2
 import json
@@ -161,7 +162,7 @@ def process_directory(subdir):
             json.dump(plans, f, indent=4)
 
 
-def save_execution_plans_for_all_multiprocess(data_directory, num_processes=12):
+def save_execution_plans_for_all_multiprocess(data_directory, num_processes=8):
     dirs = [x[0] for x in os.walk(data_directory) if 'a' in os.path.basename(x[0])]
 
     with Pool(num_processes) as pool:
@@ -170,5 +171,8 @@ def save_execution_plans_for_all_multiprocess(data_directory, num_processes=12):
 
 if __name__ == "__main__":
     meta_data_path = '../training_data/JOB/'
+    start_time = time.time()
     # meta_data_path = '../training_data/example_one/'
     save_execution_plans_for_all_multiprocess(meta_data_path)
+    end_time = time.time()
+    print(end_time - start_time)

@@ -3,34 +3,47 @@ import torch
 import random
 
 
-def best_plan_selection(model, parameter, plans):
-    model.parameter_net.eval()
-    model.plan_net.eval()
+def best_plan_selection(model, parameter, plans, device):
+    # model.parameter_net.eval()
+    # model.plan_net.eval()
+    parameter_list = np.expand_dims(parameter, 0)
+    parameter_x = torch.tensor(parameter_list).to(device)
+    param_embedding = model.parameter_net(parameter_x)
 
-    param_embedding = model.parameter_net(parameter)
+    plan_x = model.plan_net.build_trees(plans)
+    plan_embeddings = model.plan_net(plan_x)
 
     distances = []
-    for plan in plans:
-        tree_plan = model.plan_net.build_trees(plan)
-        plan_embedding = model.plan_net(tree_plan)
+    for plan_embedding in plan_embeddings:
         distance = torch.norm(plan_embedding - param_embedding).item()
         distances.append(distance)
 
+    # print(distances)
+
+    # print(distances)
+
     sorted_plan_indices = np.argsort(distances)
 
-    optimal_plan = plans[sorted_plan_indices[0]]
+    optimal_plan = sorted_plan_indices[-1]
+
+    #print(optimal_plan)
 
     return optimal_plan
 
 
-def candidate_plan_selection(model, parameters, plans, k):
+def candidate_plan_selection(model, parameters, plans, k, device):
     # 计算distance矩阵
     distances_matrix = []
-    for param in parameters:
-        param_embedding = model.parameter_net(param)
+
+    parameter_x = torch.tensor(parameters).to(device)
+    param_embeddings = model.parameter_net(parameter_x)
+
+    plan_x = model.plan_net.build_trees(plans)
+    plan_embeddings = model.plan_net(plan_x)
+
+    for param_embedding in param_embeddings:
         distances = []
-        for plan in plans:
-            plan_embedding = model.plan_net.build_trees(plan)
+        for plan_embedding in plan_embeddings:
             distance = torch.norm(plan_embedding - param_embedding).item()
             distances.append(distance)
         distances_matrix.append(distances)
@@ -44,7 +57,6 @@ def candidate_plan_selection(model, parameters, plans, k):
         min_total_distance = float('inf')
         next_selected_plan = None
 
-        # 对于每个可能的计划，计算添加它后的总距离
         for plan_idx in potential_plans:
             current_total_distance = 0
             for idx in range(len(parameters)):
@@ -55,6 +67,9 @@ def candidate_plan_selection(model, parameters, plans, k):
             if current_total_distance < min_total_distance:
                 min_total_distance = current_total_distance
                 next_selected_plan = plan_idx
+
+        if next_selected_plan is None:
+            break
 
         selected_plans.append(next_selected_plan)
         potential_plans.remove(next_selected_plan)
@@ -139,6 +154,9 @@ def candidate_plan_selection_with_random_sampling(model, parameters, plans, k, n
             if current_total_distance < min_total_distance:
                 min_total_distance = current_total_distance
                 next_selected_plan_index = plan_idx
+
+        if next_selected_plan_index is None:
+            break
 
         selected_plans.append(sampled_plans[next_selected_plan_index])
         potential_plans_indices.remove(next_selected_plan_index)

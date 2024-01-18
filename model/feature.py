@@ -110,12 +110,13 @@ def preprocess_z(vector: list,
             std = torch.sqrt(preprocessing_info["variance"])
             processed_components.append((np.array(layer).astype(int) - mean) / std)
         elif data_type == "int":
-            shifted_layer = np.array(layer).astype(int) - param["min"]
-            processed_components.append(shifted_layer)
-            # if preprocessing_type == "embedding":
-            #     embed = nn.Embedding(param["max"] - param["min"] + 1,
-            #                          preprocessing_info["output_dim"])
-            #     processed_components.append(embed(shifted_layer.long()))
+            # shifted_layer = np.array(layer).astype(int) - param["min"]
+            # processed_components.append(shifted_layer)
+            if preprocessing_type == "embedding":
+                vocab = {word: idx for idx, word in enumerate(param["distinct_values"])}
+                num_oov_indices = preprocessing_info.get("num_oov_indices", 0)
+                lookup_layer = np.array([vocab.get(la, len(vocab)) for la in layer])
+                processed_components.append(lookup_layer)
             # elif preprocessing_type == "one_hot":
             #     processed_components.append(
             #         F.one_hot(shifted_layer.long(), num_classes=param["max"] - param["min"] + 1).float())
@@ -204,7 +205,7 @@ class FeatureGenerator():
         rows_min = np.min(rows)
         rows_max = np.max(rows)
 
-        print("RelType : ", rel_type)
+        #print("RelType : ", rel_type)
 
         if len(exec_times) > 0:
             exec_times = np.array(exec_times)
@@ -273,7 +274,7 @@ class FeatureGenerator():
         rows_min = np.min(rows)
         rows_max = np.max(rows)
 
-        print("RelType : ", rel_type)
+        #print("RelType : ", rel_type)
 
         if len(exec_times) > 0:
             exec_times = np.array(exec_times)

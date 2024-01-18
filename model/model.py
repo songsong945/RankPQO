@@ -72,6 +72,23 @@ class PairDataset(Dataset):
         return self.X1[idx], self.X2[idx], self.Z[idx], self.Y[idx]
 
 
+def generate_dataset(X1, X2, Y1, Y2, Z):
+    assert len(X1) == len(X2) == len(Y1) == len(Y2) == len(Z)
+
+    total_size = len(X1)
+    indices = list(range(total_size))
+    np.random.shuffle(indices)
+
+    # Create sub-datasets
+    dataset = PairDataset([X1[i] for i in indices],
+                                [X2[i] for i in indices],
+                                [Y1[i] for i in indices],
+                                [Y2[i] for i in indices],
+                                [Z[i] for i in indices])
+
+    return dataset
+
+
 def split_pair_dataset(X1, X2, Y1, Y2, Z, train_ratio=0.8, val_ratio=0.1):
     assert len(X1) == len(X2) == len(Y1) == len(Y2) == len(Z)
 
@@ -240,7 +257,7 @@ class PlanEmbeddingNetPredVersion(nn.Module):
 
 
 class ParameterEmbeddingNet(nn.Module):
-    def __init__(self, template_id, preprocessing_infos, embed_dim=32):
+    def __init__(self, template_id, preprocessing_infos, embed_dim=16):
         super(ParameterEmbeddingNet, self).__init__()
 
         self.id = template_id
@@ -262,6 +279,7 @@ class ParameterEmbeddingNet(nn.Module):
                 embed_len += embed_dim
             else:
                 raise ValueError(f"Unknown preprocessing type: {info['type']}")
+
         self.embed_layers = nn.ModuleList(layers)
         self.embed_len = embed_len
 
@@ -547,7 +565,7 @@ class RankPQOModel():
                 predicted_labels = (prob_y > 0.5).float()
                 label = label.squeeze()
                 correct_predictions += (predicted_labels == label).float().sum().item()
-                total_predictions += len(label)
+                total_predictions += len(predicted_labels)
 
         # Compute average loss
         avg_loss = loss_accum / len(dataset)
@@ -575,9 +593,9 @@ class RankPQOModel():
             print("input_feature_dim:", input_feature_dim)
 
             if self.is_predict:
-                self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
+                self.plan_net = PlanEmbeddingNetPredVersion(input_feature_dim).to(self.device)
             else:
-                self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
+                self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
 
             self._input_feature_dim = input_feature_dim
             self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
@@ -590,7 +608,6 @@ class RankPQOModel():
 
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=batch_size,
-                                      shuffle=True,
                                       collate_fn=collate_pairwise_fn)
         val_dataloader = DataLoader(val_dataset,
                                     batch_size=batch_size,
@@ -656,3 +673,172 @@ class RankPQOModel():
         loss, accuracy = self.evaluate(test_dataset, test_dataloader)
         print("test loss:", loss)
         print("test accuracy:", accuracy)
+
+
+    def fit_with_test2(self, X1, X2, Y1, Y2, Z, X1_t, X2_t, Y1_t, Y2_t, Z_t, pre_training=False, batch_size=16, epochs=50):
+        assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
+        if isinstance(Y1, list):
+            Y1 = np.array(Y1)
+            Y1 = Y1.reshape(-1, 1)
+        if isinstance(Y2, list):
+            Y2 = np.array(Y2)
+            Y2 = Y2.reshape(-1, 1)
+
+        assert len(X1_t) == len(X2_t) and len(Y1_t) == len(Y2_t) and len(X1_t) == len(Y1_t) and len(X1_t) == len(Z_t)
+        if isinstance(Y1_t, list):
+            Y1_t = np.array(Y1_t)
+            Y1_t = Y1_t.reshape(-1, 1)
+        if isinstance(Y2_t, list):
+            Y2_t = np.array(Y2_t)
+            Y2_t = Y2_t.reshape(-1, 1)
+
+        # # determine the initial number of channels
+        if not pre_training:
+            # input_feature_dim = len(X1[0].get_feature())
+            input_feature_dim = X1[0].get_feature_len()
+            #print("input_feature_dim:", input_feature_dim)
+
+            if self.is_predict:
+                self.plan_net = PlanEmbeddingNetPredVersion(input_feature_dim).to(self.device)
+            else:
+                self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+
+            self._input_feature_dim = input_feature_dim
+            self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
+
+            self.plan_net.train()
+            self.parameter_net.train()
+
+        # Splitting the dataset
+        train_dataset = generate_dataset(X1, X2, Y1, Y2, Z)
+        val_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
+        test_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
+
+        train_dataloader = DataLoader(train_dataset,
+                                      batch_size=batch_size,
+                                      collate_fn=collate_pairwise_fn)
+        # val_dataloader = DataLoader(val_dataset,
+        #                             batch_size=batch_size,
+        #                             shuffle=True,
+        #                             collate_fn=collate_pairwise_fn)
+        test_dataloader = DataLoader(test_dataset,
+                                     batch_size=batch_size,
+                                     shuffle=True,
+                                     collate_fn=collate_pairwise_fn)
+
+        plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
+        parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
+
+        bce_loss_fn = torch.nn.BCELoss()
+
+        losses = []
+        start_time = time()
+        for epoch in range(epochs):
+            train_acc = 0
+            test_acc = 0
+            train_loss = 0
+            test_loss = 0
+            loss_accum = 0
+            correct_predictions = 0
+            total_predictions = 0
+            for x1, x2, z, label in train_dataloader:
+                z = z.to(self.device)
+                label = label.to(self.device)
+
+                tree_x1 = self.plan_net.build_trees(x1)
+                tree_x2 = self.plan_net.build_trees(x2)
+
+                # pairwise
+                y_pred_1 = self.plan_net(tree_x1)
+                y_pred_2 = self.plan_net(tree_x2)
+                z_pred = self.parameter_net(z)
+                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
+                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
+                prob_y = torch.sigmoid(distance_1 - distance_2).float()
+
+                loss = bce_loss_fn(prob_y.view(-1, 1), label)
+                loss_accum += loss.item()
+
+                predicted_labels = (prob_y > 0.5).float()
+                label = label.squeeze()
+                correct_predictions += (predicted_labels == label).float().sum().item()
+                total_predictions += len(label)
+
+                plan_optimizer.zero_grad()
+                parameter_optimizer.zero_grad()
+                loss.backward()
+                plan_optimizer.step()
+                parameter_optimizer.step()
+
+            loss_accum /= len(train_dataset)
+            losses.append(loss_accum)
+            #print("Epoch", epoch, "training loss:", loss_accum)
+            train_loss += loss_accum
+            accuracy = correct_predictions / total_predictions
+            #print("training accuracy:", accuracy)
+            train_acc += accuracy
+
+            # if (epoch + 1) % 5 == 0:
+            #     loss, accuracy = self.evaluate(val_dataset, val_dataloader)
+            #     print("validation loss:", loss)
+            #     print("validation accuracy:", accuracy)
+
+        #print("training time:", time() - start_time, "batch size:", batch_size)
+        loss, accuracy = self.evaluate(test_dataset, test_dataloader)
+        #print("test loss:", loss)
+        #print("test accuracy:", accuracy)
+        test_acc += accuracy
+        test_loss += loss
+
+        return train_acc, test_acc, train_loss, test_loss
+
+
+    def test2(self, X1, X2, Y1, Y2, Z, X1_t, X2_t, Y1_t, Y2_t, Z_t, batch_size=16):
+        assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
+        if isinstance(Y1, list):
+            Y1 = np.array(Y1)
+            Y1 = Y1.reshape(-1, 1)
+        if isinstance(Y2, list):
+            Y2 = np.array(Y2)
+            Y2 = Y2.reshape(-1, 1)
+
+        assert len(X1_t) == len(X2_t) and len(Y1_t) == len(Y2_t) and len(X1_t) == len(Y1_t) and len(X1_t) == len(Z_t)
+        if isinstance(Y1_t, list):
+            Y1_t = np.array(Y1_t)
+            Y1_t = Y1_t.reshape(-1, 1)
+        if isinstance(Y2_t, list):
+            Y2_t = np.array(Y2_t)
+            Y2_t = Y2_t.reshape(-1, 1)
+
+        # Splitting the dataset
+        train_dataset = generate_dataset(X1, X2, Y1, Y2, Z)
+        val_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
+        test_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
+
+        train_dataloader = DataLoader(train_dataset,
+                                      batch_size=batch_size,
+                                      shuffle=True,
+                                      collate_fn=collate_pairwise_fn)
+        val_dataloader = DataLoader(val_dataset,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    collate_fn=collate_pairwise_fn)
+        test_dataloader = DataLoader(test_dataset,
+                                     batch_size=batch_size,
+                                     shuffle=True,
+                                     collate_fn=collate_pairwise_fn)
+
+        loss1, accuracy1 = self.evaluate(train_dataset, train_dataloader)
+        print("train loss:", loss1)
+        print("train accuracy:", accuracy1)
+        # loss2, accuracy2 = self.evaluate(val_dataset, val_dataloader)
+        # print("validation loss:", loss2)
+        # print("validation accuracy:", accuracy2)
+        loss2, accuracy2 = self.evaluate(test_dataset, test_dataloader)
+        print("test loss:", loss2)
+        print("test accuracy:", accuracy2)
+
+        return accuracy1, accuracy2, loss1, loss2
+        #return train_acc, test_acc, train_loss, test_loss
+
+

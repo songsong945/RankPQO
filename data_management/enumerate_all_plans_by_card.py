@@ -1,9 +1,13 @@
+import time
+
 import psycopg2
 import json
 import os
 import configure
 
 import numpy as np
+
+from hybrid_plan_enumeration import get_structural_representation, compute_hash
 
 
 def search_plan_for_alias(node, alias):
@@ -53,11 +57,13 @@ def search_plan_for_aliases(node, aliases):
             for alias, rows in child_result.items():
                 if rows is not None:
                     result[alias] = rows
+                else:
+                    result[alias] = 1
 
     return result
 
 
-def generate_hints_from_plan_with_sampling(plan, aliases, k=5):
+def generate_hints_from_plan_with_sampling(plan, aliases, k=3):
     rows_dict = search_plan_for_aliases(plan["Plan"], aliases)
     candidates_dict = get_row_count_candidates_for_multiple(rows_dict)
 
@@ -110,13 +116,25 @@ def generate_plans_for_query(meta_data_path, parameter_path):
 
     connection = connect_to_pg()
     plans = {}
+    seen_hashes = set()
 
     table_aliases = [predicate["alias"] for predicate in meta_data["predicates"]]
 
     idx = 0
+    i = 0
     for params in enumerate(parameters_list.values()):
 
+        i += 1
+
+        if i > 200:
+            break
+
         plan = fetch_execution_plan(connection, meta_data['template'], params[1])
+        representation = get_structural_representation(plan['Plan'])
+        hash_val = compute_hash(representation)
+        if hash_val in seen_hashes:
+            continue
+        seen_hashes.add(hash_val)
         idx += 1
         plans[f"plan {idx}"] = plan
 
@@ -124,30 +142,52 @@ def generate_plans_for_query(meta_data_path, parameter_path):
         #     hints = generate_hints_from_plan(plan, alias)
         hints = generate_hints_from_plan_with_sampling(plan, table_aliases)
         for hint in hints:
-            idx += 1
+
             modified_plan_with_hint = fetch_execution_plan(connection, hint + " " + meta_data['template'],
                                                            params[1])
+            representation = get_structural_representation(modified_plan_with_hint['Plan'])
+            hash_val = compute_hash(representation)
+            if hash_val in seen_hashes:
+                continue
+            seen_hashes.add(hash_val)
+            idx += 1
             plans[f"modified {idx}"] = modified_plan_with_hint
 
+            # if idx >= k:
+            #     connection.close()
+            #     return plans
+
     connection.close()
+    # print(len(plans))
     return plans
 
 
 # 4. Save execution plans as JSON
 def save_execution_plans_for_all(data_directory):
+    total_time = 0
+    num = 0
     for subdir, _, _ in os.walk(data_directory):
         meta_data_path = os.path.join(subdir, "meta_data.json")
         parameter_path = os.path.join(subdir, "parameter.json")
 
         if os.path.isfile(meta_data_path) and os.path.isfile(parameter_path):
-            print(f"Processing: {meta_data_path}")
+            # print(f"Processing: {meta_data_path}")
+            start_time = time.time()
             plans = generate_plans_for_query(meta_data_path, parameter_path)
+            end_time = time.time()
 
-            with open(os.path.join(subdir, "all_plans_by_card.json"), 'w') as f:
+            num += len(plans)
+
+            total_time += (end_time - start_time)
+
+            with open(os.path.join(subdir, f"all_plans_by_card.json"), 'w') as f:
                 json.dump(plans, f, indent=4)
+
+    print(f'plan number: {num}')
+    print(f'time: {total_time}')
 
 
 if __name__ == "__main__":
     meta_data_path = '../training_data/JOB/'
     # meta_data_path = '../training_data/example_one/'
-    save_execution_plans_for_all(meta_data_path)
+    print(save_execution_plans_for_all(meta_data_path))

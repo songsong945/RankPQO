@@ -1,4 +1,5 @@
 import hashlib
+import itertools
 import json
 import os
 import random
@@ -51,6 +52,42 @@ def fetch_execution_plan(connection, template, parameters):
     plan = cursor.fetchone()
     cursor.close()
     return plan[0][0]
+
+
+def extract_tables_from_node(node):
+    """
+    Recursively extract table aliases from a plan node.
+    """
+    tables = []
+
+    if "Relation Name" in node:
+        tables.append(node["Alias"])
+
+    if "Plans" in node:
+        for child in node["Plans"]:
+            tables.extend(extract_tables_from_node(child))
+
+    return tables
+
+def generate_join_order_hints(plan, k):
+    if isinstance(plan, str):
+        plan = json.loads(plan)
+
+    tables = extract_tables_from_node(plan["Plan"])
+
+    table_permutations = itertools.permutations(tables)
+
+    print("----")
+
+    # Sample k permutations from the generator
+    sampled_permutations = list(itertools.islice(table_permutations, k))
+
+    hints = []
+    for perm in sampled_permutations:
+        hint = "/*+ Leading(" + " ".join(perm) + ") */"
+        hints.append(hint)
+
+    return hints
 
 
 def sample_join_order(graph, cardinality=None):
@@ -124,16 +161,29 @@ def get_cardinality_from_plan(plan):
 def generate_plans_by_join_order(connection, template, params, plan, k):
     plans = []
     join_graph = extract_join_graph_from_sql(template)
-    cardinality = get_cardinality_from_plan(plan)
-    for i in range(k):
-        join_order = sample_join_order(join_graph, cardinality)
+    #cardinality = get_cardinality_from_plan(plan)
+    # for i in range(k):
+    #     #join_order = sample_join_order(join_graph, cardinality)
+    #     join_order = sample_join_order(join_graph)
+    #     hint = "/*+ Leading(" + " ".join(join_order) + ") */"
+    #     plan_with_hint = fetch_execution_plan(connection, hint + " " + template, params)
+    #     plans.append(plan_with_hint)
+
+    tables = join_graph.keys()
+
+    table_permutations = itertools.permutations(tables)
+
+    # Sample k permutations from the generator
+    sampled_permutations = list(itertools.islice(table_permutations, k))
+    for join_order in sampled_permutations:
+        #join_order = sample_join_order(join_graph, cardinality)
         hint = "/*+ Leading(" + " ".join(join_order) + ") */"
         plan_with_hint = fetch_execution_plan(connection, hint + " " + template, params)
         plans.append(plan_with_hint)
     return plans
 
 
-def generate_plans(meta_data_path, parameter_path,k1=200, k2=50):
+def generate_plans(meta_data_path, parameter_path, k=50):
     with open(meta_data_path, 'r') as f:
         meta_data = json.load(f)
     with open(parameter_path, 'r') as f:
@@ -143,11 +193,7 @@ def generate_plans(meta_data_path, parameter_path,k1=200, k2=50):
     plans = {}
     seen_hashes = set()
     idx = 0
-    i = 0
     for params in enumerate(parameters_list.values()):
-        i += 1
-        if i>k1:
-            break
         plan = fetch_execution_plan(connection, meta_data['template'], params[1])
 
         representation = get_structural_representation(plan['Plan'])
@@ -158,7 +204,7 @@ def generate_plans(meta_data_path, parameter_path,k1=200, k2=50):
         idx += 1
         plans[f"plan {idx}"] = plan
 
-        altered_plans = generate_plans_by_join_order(connection, meta_data['template'], params[1], plan, k2)
+        altered_plans = generate_plans_by_join_order(connection, meta_data['template'], params[1], plan, k)
         for plan in altered_plans:
             representation = get_structural_representation(plan['Plan'])
             hash_val = compute_hash(representation)
@@ -178,13 +224,11 @@ def process_directory(subdir):
     parameter_path = os.path.join(subdir, "parameter_new.json")
 
     if os.path.isfile(meta_data_path) and os.path.isfile(parameter_path):
-        #print(f"Processing: {meta_data_path}")
+        print(f"Processing: {meta_data_path}")
         plans = generate_plans(meta_data_path, parameter_path)
 
-        print(len(plans))
-
-        # with open(os.path.join(subdir, "all_plans_by_hybrid_new.json"), 'w') as f:
-        #     json.dump(plans, f, indent=4)
+        with open(os.path.join(subdir, "all_plans_by_hybrid_naive_random.json"), 'w') as f:
+            json.dump(plans, f, indent=4)
 
 def save_execution_plans_for_all_multiprocess(data_directory, num_processes=8):
     dirs = [x[0] for x in os.walk(data_directory) if 'a' in os.path.basename(x[0])]

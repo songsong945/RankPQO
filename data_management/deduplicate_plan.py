@@ -89,14 +89,14 @@ def process_all_plans(data_directory):
         if 'a' not in os.path.basename(subdir):
             continue
 
-        plan_file_path = os.path.join(subdir, "all_plans_by_join_order.json")
+        plan_file_path = os.path.join(subdir, "all_plans.json")
 
         if os.path.isfile(plan_file_path):
             print(f"Processing {plan_file_path}...")
             unique_plans = deduplicate_plans(plan_file_path)
             print(f"The number of unique plans: {len(unique_plans)}")
 
-            with open(os.path.join(subdir, "plan_by_join_order.json"), 'w') as out_file:
+            with open(os.path.join(subdir, "plan_pg.json"), 'w') as out_file:
                 json.dump(unique_plans, out_file, indent=4)
 
 

@@ -39,7 +39,7 @@ def add_statistics(meta_data_path):
             min_val, max_val, distinct_count = cursor.fetchone()
             predicate["min"] = min_val
             predicate["max"] = max_val
-            predicate["max_len"] = distinct_count
+            predicate["max_len"] = distinct_count + 5
 
         # 对于 float 类型
         elif predicate["data_type"] == "float":
@@ -54,7 +54,7 @@ def add_statistics(meta_data_path):
                 f"SELECT ARRAY_AGG(DISTINCT {column_name}), COUNT(DISTINCT {column_name}) FROM {actual_table_name}")
             distinct_values, distinct_count = cursor.fetchone()
             predicate["distinct_values"] = distinct_values
-            predicate["max_len"] = distinct_count
+            predicate["max_len"] = distinct_count + 5
 
     # 关闭数据库连接
     cursor.close()
