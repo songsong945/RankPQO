@@ -9,9 +9,9 @@ from psycopg2 import errors
 
 from data_management import configure
 from data_management.evaluate_cost_matrix import generate_hint_from_plan, fetch_actual_latency
-from model.model import RankPQOModel
-from model_based_solutions import candidate_plan_selection, best_plan_selection
-from train.train_pred_version import get_param_info, _meta_path, _plan_path, _param_path
+from model.model_plan_distance import RankPQOModel
+from model_based_solutions_plan_distance import candidate_plan_selection, best_plan_selection
+from train.train_plan_distance import get_param_info, _meta_path, _plan_path, _param_path
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(message)s')
@@ -24,7 +24,7 @@ def _selected_plan_path(input, base):
 
 
 def _cost_path(base):
-    return os.path.join(base, "cost_matrix.json")
+    return os.path.join(base, "latency_matrix_new.json")
 
 
 def connect_to_pg_tpcds():
@@ -140,7 +140,7 @@ def candidate_selection(data, is_share, model_path, device, k, output):
         params, preprocess_info = get_param_info(meta)
         plans = list(plan.values())
         parameters = list(param.values())
-        # print(f"plan number: {len(plans)}")
+        print(f"plan number: {len(plans)}")
         rank_PQO_model = RankPQOModel(None, template_id, preprocess_info, device=device)
         rank_PQO_model.load(model_path_file, fist_layer=1)
         feature_generator = rank_PQO_model._feature_generator
@@ -221,14 +221,14 @@ def best_plan_prediction2(data, is_share, model_path, device, input, output):
         params, preprocess_info = get_param_info(meta)
         plans = list(plan.values())
         parameters_train_data = [param[key] for key in train_keys_list if key in param]
-        parameters_test_data = [param[key] for key in test_keys_list if key in param]
+        # parameters_test_data = [param[key] for key in test_keys_list if key in param]
 
         rank_PQO_model = RankPQOModel(None, template_id, preprocess_info, device=device)
         rank_PQO_model.load(model_path_file, fist_layer=1)
         feature_generator = rank_PQO_model._feature_generator
         plans_t = feature_generator.transform(plans)
         train_parameters = feature_generator.transform_z(parameters_train_data, params, preprocess_info)
-        test_parameters = feature_generator.transform_z(parameters_test_data, params, preprocess_info)
+        # test_parameters = feature_generator.transform_z(parameters_test_data, params, preprocess_info)
 
         print(f"Processing training queries")
 
@@ -243,8 +243,8 @@ def best_plan_prediction2(data, is_share, model_path, device, input, output):
             best_plan = plans[best_plan_id]
             param_values = parameters_train_data[i]
             plan_hint = generate_hint_from_plan(best_plan)
-            query_with_hint = f"/*+ {plan_hint} */ EXPLAIN " + template
-            # query_with_hint = f"/*+ {plan_hint} */ EXPLAIN ANALYZE " + template
+            # query_with_hint = f"/*+ {plan_hint} */ EXPLAIN " + template
+            query_with_hint = f"/*+ {plan_hint} */ EXPLAIN ANALYZE " + template
 
             query_with_hint = query_with_hint.format(*param_values)
 
@@ -259,40 +259,40 @@ def best_plan_prediction2(data, is_share, model_path, device, input, output):
             execution_time_template += (latency + predict_time)
 
             # if latency / 1000 > 5:
-            # logging.info(f"Query {folder}-{i}: plan select {predict_time}s and execute {latency} s")
+            logging.info(f"Query {folder}-{i}: plan select {predict_time}s and execute {latency} s")
+        #
+        # print(f"Processing testing queries")
+        #
+        # for i, parameter in enumerate(test_parameters):
+        #     start_time = time.time()
+        #     best_plan_id = best_plan_selection(rank_PQO_model, parameter, plans_t, device)
+        #     end_time = time.time()
+        #     predict_time = end_time - start_time
+        #
+        #     test_predict_time_total += predict_time
+        #
+        #     best_plan = plans[best_plan_id]
+        #     param_values = parameters_test_data[i]
+        #     plan_hint = generate_hint_from_plan(best_plan)
+        #     query_with_hint = f"/*+ {plan_hint} */ EXPLAIN ANALYZE " + template
+        #
+        #     query_with_hint = query_with_hint.format(*param_values)
+        #
+        #     # query = f"/*+ */ EXPLAIN ANALYZE " + template
+        #     #
+        #     # query = query.format(*parameter)
+        #
+        #     # latency = fetch_actual_latency2(connection1, connection2, query_with_hint, param_values, query)
+        #     latency = fetch_actual_latency(connection, query_with_hint, param_values)
+        #
+        #     test_execution_time_total += (latency)
+        #     execution_time_template += (latency + predict_time)
+        #
+        #     # if latency / 1000 > 5:
+        #     logging.info(f"Query {folder}-{i}: plan select {predict_time}s and execute {latency} s")
 
-        print(f"Processing testing queries")
-
-        for i, parameter in enumerate(test_parameters):
-            start_time = time.time()
-            best_plan_id = best_plan_selection(rank_PQO_model, parameter, plans_t, device)
-            end_time = time.time()
-            predict_time = end_time - start_time
-
-            test_predict_time_total += predict_time
-
-            best_plan = plans[best_plan_id]
-            param_values = parameters_test_data[i]
-            plan_hint = generate_hint_from_plan(best_plan)
-            query_with_hint = f"/*+ {plan_hint} */ EXPLAIN " + template
-
-            query_with_hint = query_with_hint.format(*param_values)
-
-            # query = f"/*+ */ EXPLAIN ANALYZE " + template
-            #
-            # query = query.format(*parameter)
-
-            # latency = fetch_actual_latency2(connection1, connection2, query_with_hint, param_values, query)
-            latency = fetch_actual_latency(connection, query_with_hint, param_values)
-
-            test_execution_time_total += (latency)
-            execution_time_template += (latency + predict_time)
-
-            # if latency / 1000 > 5:
-            # logging.info(f"Query {folder}-{i}: plan select {predict_time}s and execute {latency} s")
-
-        results[folder] = execution_time_template / 5
-        logging.info(f"Query {folder} avg time: {execution_time_template / 5}s")
+        results[folder] = execution_time_template
+        logging.info(f"Query {folder} time: {execution_time_template}s")
 
     # logging.info(f"total train predict time: {train_predict_time_total}s")
     # logging.info(f"total train execution time: {train_execution_time_total}s")
@@ -437,7 +437,7 @@ def PG_original2(data, output):
             cost = json.load(f)
 
         train_keys_list = list(cost.keys())[:160]
-        test_keys_list = list(cost.keys())[160:]
+        test_keys_list = list(cost.keys())[160:200]
 
         template = meta["template"]
         print(f"Processing {folder}")
@@ -554,88 +554,10 @@ def PG_original(data, output):
 
 if __name__ == '__main__':
     # print('random on graph')
-    # PG_original("./training_data/TPCDS/", "./results/TPCDS/PG.txt")
-    # candidate_selection("./training_data/TPCDS/", True,
-    #                     "./checkpoints/TPCDS_no_share_3k/", "cuda:2", 30,
-    #                     f"selected_plans_no_share_30.json")
-    # candidate_selection("./training_data/TPCDS/", True,
-    #                     "./checkpoints/TPCDS_alternating_3k_1/", "cuda:2", 30,
-    #                     f"selected_plans_30.json")
-    # best_plan_prediction2("./training_data/TPCDS/", True,
-    #                       "./checkpoints/TPCDS_alternating_3k_1/", "cuda:2",
-    #                       f"selected_plans_30.json", f"./results/TPCDS/RankPQO_hybrid_30.txt")
-    PG_original("./training_data/JOB/", "./results/JOB/PG.txt")
+    # PG_original2("./training_data/JOB/", "./results/JOB/PG.txt")
+    # candidate_selection("./training_data/JOB/", True,
+    #                     "./checkpoints/A_D_JOB_alternating_3k_1/", "cuda:2", 30,
+    #                     f"A_D_JOB_selected_plans_3k_1_30.json")
     best_plan_prediction2("./training_data/JOB/", True,
-                          "./checkpoints/JOB_alternating_3k_1/", "cuda:2",
-                          f"selected_plans_3k_1_30.json", f"./results/JOB/RankPQO_hybrid_30.txt")
-    # for k in [40, 50]:
-    # for k in [10, 20, 30, 40, 50]:
-    #     print(k)
-    #     candidate_selection("./training_data/JOB/", False,
-    #                         "./checkpoints/JOB_no_share_new_3k_10ep/", "cuda:2", k, f"selected_plans_3k_no_share_{k}.json")
-    #     best_plan_prediction2("./training_data/JOB/", False,
-    #                          "./checkpoints/JOB_no_share_new_3k_10ep/", "cuda:2",
-    #                          f"selected_plans_3k_no_share_{k}.json", f"./results/JOB/RankPQO_3k_no_share_{k}.txt")
-    #
-    # for k in [10, 20, 30, 40, 50]:
-    #     print(k)
-    #     candidate_selection("./training_data/JOB/", True,
-    #                         "./checkpoints/JOB_alternating_new_3k_10ep_1step/", "cuda:2", k, f"selected_plans_3k_1_{k}.json")
-    #     best_plan_prediction2("./training_data/JOB/", True,
-    #                          "./checkpoints/JOB_alternating_new_3k_10ep_1step/", "cuda:2",
-    #                          f"selected_plans_3k_1_{k}.json", f"./results/JOB/RankPQO_3k_1_{k}.txt")
-
-    # vary epochs
-    # for k in [1, 5, 15, 20]:
-    #     print(k)
-    #     candidate_selection("./training_data/JOB/", False,
-    #                         f"./checkpoints/JOB_no_share_new_3k_{k}ep/", "cuda:2", 30,
-    #                         f"selected_plans_3k_no_share_30_{k}ep.json")
-    #     best_plan_prediction2("./training_data/JOB/", False,
-    #                           f"./checkpoints/JOB_no_share_new_3k_{k}ep/", "cuda:2",
-    #                           f"selected_plans_3k_no_share_30_{k}ep.json", f"./results/JOB/RankPQO_3k_no_share_30_{k}ep.txt")
-
-    # for k in [1, 5, 15, 20]:
-    #     print(k)
-    #     candidate_selection("./training_data/JOB/", True,
-    #                         f"./checkpoints/JOB_alternating_new_3k_{k}ep_1step/", "cuda:2", 30,
-    #                         f"selected_plans_3k_1_30_{k}ep.json")
-    #     best_plan_prediction2("./training_data/JOB/", True,
-    #                           f"./checkpoints/JOB_alternating_new_3k_{k}ep_1step/", "cuda:2",
-    #                           f"selected_plans_3k_1_30_{k}ep.json", f"./results/JOB/RankPQO_3k_1_30_{k}ep.txt")
-
-    # all_plans_by_card_{k}.json
-
-    # PG_original2("./training_data/JOB/", "./results/JOB/PG_train_test.txt")
-    # PG_original("./training_data/TPCDS/", "./results/TPCDS/PG.txt")
-    # PG_original("./training_data/job_pqo_resampled/", "./results/job_pqo_resampled/PG.txt")
-
-    # vary data size
-    # for s in ['1k', '2k', '4k', '5k']:
-    # # for s in ['1k', '2k', '20k', '25k']:
-    #     print(s)
-    #     candidate_selection("./training_data/JOB/", False,
-    #                         f"./checkpoints/JOB_no_share_new_{s}_10ep/", "cuda:1", 30, f"selected_plans_{s}_no_share_30.json")
-    #     best_plan_prediction2("./training_data/JOB/", False,
-    #                          f"./checkpoints/JOB_no_share_new_{s}_10ep/", "cuda:1",
-    #                          f"selected_plans_{s}_no_share_30.json", f"./results/JOB/RankPQO_{s}_no_share_30.txt")
-
-    # for s in ['1k', '2k', '4k', '5k']:
-    # # for s in ['1k', '2k', '20k', '25k']:
-    #     print(s)
-    #     candidate_selection("./training_data/JOB/", True,
-    #                         f"./checkpoints/JOB_alternating_new_{s}_10ep_1step/", "cuda:1", 30, f"selected_plans_{s}_1_30.json")
-    #     best_plan_prediction2("./training_data/JOB/", True,
-    #                          f"./checkpoints/JOB_alternating_new_{s}_10ep_1step/", "cuda:1",
-    #                          f"selected_plans_{s}_1_30.json", f"./results/JOB/RankPQO_{s}_1_30.txt")
-
-    # vary step
-    # for step in [10, 5, 2]:
-    # #for step in [50,25]:
-    #     print(step)
-    #     candidate_selection("./training_data/JOB/", True,
-    #                         f"./checkpoints/JOB_alternating_new_3k_10ep_{step}step/", "cuda:2",
-    #                         30, f"selected_plans_3k_{step}_30.json")
-    #     best_plan_prediction2("./training_data/JOB/", True,
-    #                          f"./checkpoints/JOB_alternating_new_3k_10ep_{step}step/", "cuda:2",
-    #                          f"selected_plans_3k_{step}_30.json", f"./results/JOB/RankPQO_3k_{step}_30.txt")
+                          "./checkpoints/A_D_JOB_alternating_3k_1/", "cuda:2",
+                          f"A_D_JOB_selected_plans_3k_1_30.json", f"./results/JOB/A_D_JOB_30.txt")

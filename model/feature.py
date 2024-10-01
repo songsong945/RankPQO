@@ -18,10 +18,23 @@ OP_TYPES = [UNKNOWN_OP_TYPE, "Hash", "Materialize", "Sort", "Aggregate", "Increm
     + SCAN_TYPES + JOIN_TYPES + OTHER_TYPES
 
 OPERATORS = ['!~~', '~~', '<=', '>=', '=', '<', '>']
+# OPERATORS = ['=', 'in', 'between']
 UNKNOWN_COLUMN = 'Unknown'
 COLUMNS = [UNKNOWN_COLUMN,
     "t2.production_year","pi.note","cn.name","n.gender","it.info","t.title","t.episode_nr","it2.info","n.name","cct2.kind","it3.info","mi.note","mc.note","mi_idx.info","t.production_year","n.name_pcode_cf","kt.kind","n1.name","lt.link","it1.info","cn1.country_code","rt.role","mi_idx2.info","k.keyword","an.name","ct.kind","ci.note","chn.name","mi.info","cn.country_code","cct1.kind"
 ]
+# COLUMNS = [UNKNOWN_COLUMN,
+#         "cd_marital_status",
+#         "ca_state",
+#         "sm_type",
+#         "i_category",
+#         "cc_class",
+#         "cd_gender",
+#         "i_manager_id",
+#         "s_state",
+#         "hd_buy_potential",
+#         "ca_city",
+#         "cd_education_status"]
 
 import re
 def extract_predicates_from_condition(condition, alias):
@@ -527,7 +540,11 @@ class AnalyzeJsonParser(FeatureParser):
         cols = []
         ops = []
         for col, op in predicates:
-            cols.append(self.columns.index(col))
+            try:
+                col_index = self.columns.index(col)
+            except ValueError:
+                col_index = self.columns.index(UNKNOWN_COLUMN)
+            cols.append(col_index)
             ops.append(self.ops.index(op))
 
         encoded_array = np.zeros(2 * self.max_predicate_len + 1, dtype=int)

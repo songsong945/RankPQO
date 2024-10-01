@@ -11,10 +11,10 @@ from torch.utils.data import Dataset
 # from model.TreeConvolution.util import *
 
 import joblib
-from .feature import SampleEntity
-from .TreeConvolution.tcnn import (BinaryTreeConv, DynamicPooling,
+from feature import SampleEntity
+from TreeConvolution.tcnn import (BinaryTreeConv, DynamicPooling,
                                    TreeActivation, TreeLayerNorm)
-from .TreeConvolution.util import prepare_trees
+from TreeConvolution.util import prepare_trees
 
 np.random.seed(42)
 
@@ -39,6 +39,18 @@ def _feature_generator_path(base):
 
 def _input_feature_dim_path(base):
     return os.path.join(base, "input_feature_dim")
+
+
+def concatenate_z_to_nodes(tree_x, z):
+    flat_trees, indexes = tree_x
+
+    batch_size, channels, max_tree_nodes = flat_trees.shape
+    z_channels = z.shape[1]
+
+    z_expanded = z.unsqueeze(2).expand(batch_size, z_channels, max_tree_nodes)
+    flat_trees_with_z = torch.cat((flat_trees, z_expanded), dim=1)
+
+    return (flat_trees_with_z, indexes)
 
 
 def collate_fn(x):
@@ -221,7 +233,9 @@ class PlanEmbeddingNetPredVersion(nn.Module):
             BinaryTreeConv(128, 64),
             TreeLayerNorm(),
             DynamicPooling(),
-            nn.Linear(64, 32)
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1)
         )
 
     def forward(self, trees):
@@ -229,12 +243,13 @@ class PlanEmbeddingNetPredVersion(nn.Module):
         feature, indexes = trees
         # Batch x Feature_Dim x Nodes --> Batch x Nodes x Feature_Dim
         b, d, n = feature.size()
-        feature = feature.transpose(1,2).view(b*n, d)
+        # feature = feature.transpose(1,2).view(b*n, d)
+        feature = feature.transpose(1, 2).reshape(b * n, d)
 
-        other_len = self.input_feature_dim - 2 * self.max_predicate_len - 1
-        others, columns, ops, length = \
+        other_len = self.input_feature_dim - 2 * self.max_predicate_len - 1 - 32
+        others, columns, ops, length, param = \
             torch.split(feature,(other_len, \
-                self.max_predicate_len,self.max_predicate_len,1), dim = -1)
+                self.max_predicate_len,self.max_predicate_len,1, 32), dim = -1)
 
         col_embed = self.col_embed(columns.long())
         ops_embed = self.op_embed(ops.long())
@@ -245,7 +260,7 @@ class PlanEmbeddingNetPredVersion(nn.Module):
 
         total = torch.sum(concat, dim = 1)
 
-        collate_feature = torch.cat((others, total), dim=-1).view(b, n, -1).transpose(1,2) # shift back
+        collate_feature = torch.cat((others, total, param), dim=-1).view(b, n, -1).transpose(1,2) # shift back
 
         # print(other_len, length)
         # print(collate_feature.size(), indexes.size(), others.size())
@@ -283,9 +298,7 @@ class ParameterEmbeddingNet(nn.Module):
         self.embed_layers = nn.ModuleList(layers)
         self.embed_len = embed_len
 
-        self.fc1 = nn.Linear(embed_len, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 32)
+        self.fc1 = nn.Linear(embed_len, 32)
 
     def forward(self, x):
         ## x.shape : Batch x len(preprocessing_infos)
@@ -300,9 +313,7 @@ class ParameterEmbeddingNet(nn.Module):
 
         embedded = torch.concat(embedded, -1)
 
-        x = F.relu(self.fc1(embedded))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.fc1(embedded)
         return x
 
 
@@ -325,9 +336,9 @@ class RankPQOModel():
             self._input_feature_dim = joblib.load(f)
 
         if self.is_predict:
-            self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
+            self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim + 32).to(self.device)
         else:
-            self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
+            self.plan_net = PlanEmbeddingNet(self._input_feature_dim + 32).to(self.device)
         self.plan_net.load_state_dict(torch.load(
             _nn_path(path), map_location=torch.device(self.device)))
         self.plan_net.eval()
@@ -337,9 +348,6 @@ class RankPQOModel():
             state_dicts = torch.load(_fnn_path_first_layer(path, self._template_id), map_location=torch.device(self.device))
             self.parameter_net.embed_layers.load_state_dict(state_dicts['embed_layer'])
             self.parameter_net.fc1.load_state_dict(state_dicts['fc1'])
-        state_dicts = torch.load(_fnn_path(path), map_location=torch.device(self.device))
-        self.parameter_net.fc2.load_state_dict(state_dicts['fc2'])
-        self.parameter_net.fc3.load_state_dict(state_dicts['fc3'])
         self.parameter_net.eval()
 
         with open(_feature_generator_path(path), "rb") as f:
@@ -353,186 +361,11 @@ class RankPQOModel():
             'embed_layer': self.parameter_net.embed_layers.state_dict(),
             'fc1': self.parameter_net.fc1.state_dict()
         }, _fnn_path_first_layer(path, self._template_id))
-        torch.save({
-            'fc2': self.parameter_net.fc2.state_dict(),
-            'fc3': self.parameter_net.fc3.state_dict()
-        }, _fnn_path(path))
 
         with open(_feature_generator_path(path), "wb") as f:
             joblib.dump(self._feature_generator, f)
         with open(_input_feature_dim_path(path), "wb") as f:
             joblib.dump(self._input_feature_dim, f)
-
-    def fit(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=16, epochs=50):
-        assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
-        if isinstance(Y1, list):
-            Y1 = np.array(Y1)
-            Y1 = Y1.reshape(-1, 1)
-        if isinstance(Y2, list):
-            Y2 = np.array(Y2)
-            Y2 = Y2.reshape(-1, 1)
-
-        # # determine the initial number of channels
-        if not pre_training:
-            input_feature_dim = len(X1[0].get_feature())
-            print("input_feature_dim:", input_feature_dim)
-
-            if self.is_predict:
-                self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
-            else:
-                self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
-
-            self._input_feature_dim = input_feature_dim
-            self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
-
-        dataset = PairDataset(X1, X2, Y1, Y2, Z)
-        dataloader = DataLoader(dataset,
-                                batch_size=batch_size,
-                                shuffle=True,
-                                collate_fn=collate_pairwise_fn)
-
-        plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
-        parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
-
-        bce_loss_fn = torch.nn.BCELoss()
-
-        losses = []
-        start_time = time()
-        for epoch in range(epochs):
-            loss_accum = 0
-            for x1, x2, z, label in dataloader:
-                z = z.to(self.device)
-                label = label.to(self.device)
-
-                tree_x1 = self.plan_net.build_trees(x1)
-                tree_x2 = self.plan_net.build_trees(x2)
-
-                # pairwise
-                y_pred_1 = self.plan_net(tree_x1)
-                y_pred_2 = self.plan_net(tree_x2)
-                z_pred = self.parameter_net(z)
-                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
-                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
-                prob_y = torch.sigmoid(distance_1 - distance_2).float()
-
-                loss = bce_loss_fn(prob_y.view(-1, 1), label)
-                loss_accum += loss.item()
-
-                plan_optimizer.zero_grad()
-                parameter_optimizer.zero_grad()
-                loss.backward()
-                plan_optimizer.step()
-                parameter_optimizer.step()
-
-            loss_accum /= len(dataset)
-            losses.append(loss_accum)
-
-            print("Epoch", epoch, "training loss:", loss_accum)
-        print("training time:", time() - start_time, "batch size:", batch_size)
-
-
-    def fit_predicate_model(self, X1, X2, Y1, Y2, Z, pre_training=False, batch_size=16, epochs=50):
-            assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
-            if isinstance(Y1, list):
-                Y1 = np.array(Y1)
-                Y1 = Y1.reshape(-1, 1)
-            if isinstance(Y2, list):
-                Y2 = np.array(Y2)
-                Y2 = Y2.reshape(-1, 1)
-
-            # # determine the initial number of channels
-            if not pre_training:
-                input_feature_dim = len(X1[0].get_feature())
-                print("input_feature_dim:", input_feature_dim)
-
-                if self.is_predict:
-                    self.plan_net = PlanEmbeddingNetPredVersion(self._input_feature_dim).to(self.device)
-                else:
-                    self.plan_net = PlanEmbeddingNet(self._input_feature_dim).to(self.device)
-
-                self._input_feature_dim = input_feature_dim
-                self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
-
-            dataset = PairDataset(X1, X2, Y1, Y2, Z)
-            dataloader = DataLoader(dataset,
-                                    batch_size=batch_size,
-                                    shuffle=True,
-                                    collate_fn=collate_pairwise_fn)
-
-            plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
-            parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
-
-            bce_loss_fn = torch.nn.BCELoss()
-
-            losses = []
-            start_time = time()
-            for epoch in range(epochs):
-                loss_accum = 0
-                for x1, x2, z, label in dataloader:
-                    z = z.to(self.device)
-                    label = label.to(self.device)
-
-                    tree_x1 = self.plan_net.build_trees(x1)
-                    tree_x2 = self.plan_net.build_trees(x2)
-
-                    # pairwise
-                    y_pred_1 = self.plan_net(tree_x1)
-                    y_pred_2 = self.plan_net(tree_x2)
-                    z_pred = self.parameter_net(z)
-                    distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
-                    distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
-                    prob_y = torch.sigmoid(distance_1 - distance_2).float()
-
-                    loss = bce_loss_fn(prob_y.view(-1, 1), label)
-                    loss_accum += loss.item()
-
-                    plan_optimizer.zero_grad()
-                    parameter_optimizer.zero_grad()
-                    loss.backward()
-                    plan_optimizer.step()
-                    parameter_optimizer.step()
-
-                loss_accum /= len(dataset)
-                losses.append(loss_accum)
-
-                print("Epoch", epoch, "training loss:", loss_accum)
-            print("training time:", time() - start_time, "batch size:", batch_size)
-
-
-    def test(self, X1, X2, Y1, Y2, Z, batch_size=16):
-        assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
-        if isinstance(Y1, list):
-            Y1 = np.array(Y1)
-            Y1 = Y1.reshape(-1, 1)
-        if isinstance(Y2, list):
-            Y2 = np.array(Y2)
-            Y2 = Y2.reshape(-1, 1)
-
-        # Splitting the dataset
-        train_dataset, val_dataset, test_dataset = split_pair_dataset(X1, X2, Y1, Y2, Z)
-
-        train_dataloader = DataLoader(train_dataset,
-                                      batch_size=batch_size,
-                                      shuffle=True,
-                                      collate_fn=collate_pairwise_fn)
-        val_dataloader = DataLoader(val_dataset,
-                                    batch_size=batch_size,
-                                    shuffle=True,
-                                    collate_fn=collate_pairwise_fn)
-        test_dataloader = DataLoader(test_dataset,
-                                     batch_size=batch_size,
-                                     shuffle=True,
-                                     collate_fn=collate_pairwise_fn)
-
-        loss, accuracy = self.evaluate(train_dataset, train_dataloader)
-        print("train loss:", loss)
-        print("train accuracy:", accuracy)
-        loss, accuracy = self.evaluate(val_dataset, val_dataloader)
-        print("validation loss:", loss)
-        print("validation accuracy:", accuracy)
-        loss, accuracy = self.evaluate(test_dataset, test_dataloader)
-        print("test loss:", loss)
-        print("test accuracy:", accuracy)
 
     def evaluate(self, dataset, dataloader):
         bce_loss_fn = torch.nn.BCELoss()
@@ -552,12 +385,16 @@ class RankPQOModel():
                 tree_x2 = self.plan_net.build_trees(x2)
 
                 # pairwise
-                y_pred_1 = self.plan_net(tree_x1)
-                y_pred_2 = self.plan_net(tree_x2)
-                z_pred = self.parameter_net(z)
-                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
-                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
-                prob_y = torch.sigmoid(distance_1 - distance_2).float()
+                z = self.parameter_net(z)
+
+                tree_x1_z = concatenate_z_to_nodes(tree_x1, z)
+                tree_x2_z = concatenate_z_to_nodes(tree_x2, z)
+
+                # pairwise
+                y_pred_1 = self.plan_net(tree_x1_z)
+                y_pred_2 = self.plan_net(tree_x2_z)
+
+                prob_y = torch.sigmoid(y_pred_1 - y_pred_2).float()
 
                 loss = bce_loss_fn(prob_y.view(-1, 1), label)
                 loss_accum += loss.item()
@@ -594,9 +431,9 @@ class RankPQOModel():
             print("input_feature_dim:", input_feature_dim)
 
             if self.is_predict:
-                self.plan_net = PlanEmbeddingNetPredVersion(input_feature_dim).to(self.device)
+                self.plan_net = PlanEmbeddingNetPredVersion(input_feature_dim + 32).to(self.device)
             else:
-                self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
+                self.plan_net = PlanEmbeddingNet(input_feature_dim + 32).to(self.device)
 
             self._input_feature_dim = input_feature_dim
             self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
@@ -637,14 +474,16 @@ class RankPQOModel():
                 tree_x1 = self.plan_net.build_trees(x1)
                 tree_x2 = self.plan_net.build_trees(x2)
 
-                # pairwise
-                y_pred_1 = self.plan_net(tree_x1)
-                y_pred_2 = self.plan_net(tree_x2)
-                z_pred = self.parameter_net(z)
-                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
-                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
-                prob_y = torch.sigmoid(distance_1 - distance_2).float()
+                z = self.parameter_net(z)
 
+                tree_x1_z = concatenate_z_to_nodes(tree_x1, z)
+                tree_x2_z = concatenate_z_to_nodes(tree_x2, z)
+
+                # pairwise
+                y_pred_1 = self.plan_net(tree_x1_z)
+                y_pred_2 = self.plan_net(tree_x2_z)
+
+                prob_y = torch.sigmoid(y_pred_1 - y_pred_2).float()
                 loss = bce_loss_fn(prob_y.view(-1, 1), label)
                 loss_accum += loss.item()
 
@@ -676,7 +515,7 @@ class RankPQOModel():
         print("test accuracy:", accuracy)
 
 
-    def fit_with_test2(self, X1, X2, Y1, Y2, Z, X1_t, X2_t, Y1_t, Y2_t, Z_t, pre_training=False, batch_size=16, epochs=50):
+    def test(self, X1, X2, Y1, Y2, Z, batch_size=16):
         assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
         if isinstance(Y1, list):
             Y1 = np.array(Y1)
@@ -685,136 +524,8 @@ class RankPQOModel():
             Y2 = np.array(Y2)
             Y2 = Y2.reshape(-1, 1)
 
-        assert len(X1_t) == len(X2_t) and len(Y1_t) == len(Y2_t) and len(X1_t) == len(Y1_t) and len(X1_t) == len(Z_t)
-        if isinstance(Y1_t, list):
-            Y1_t = np.array(Y1_t)
-            Y1_t = Y1_t.reshape(-1, 1)
-        if isinstance(Y2_t, list):
-            Y2_t = np.array(Y2_t)
-            Y2_t = Y2_t.reshape(-1, 1)
-
-        # # determine the initial number of channels
-        if not pre_training:
-            # input_feature_dim = len(X1[0].get_feature())
-            input_feature_dim = X1[0].get_feature_len()
-            #print("input_feature_dim:", input_feature_dim)
-
-            if self.is_predict:
-                self.plan_net = PlanEmbeddingNetPredVersion(input_feature_dim).to(self.device)
-            else:
-                self.plan_net = PlanEmbeddingNet(input_feature_dim).to(self.device)
-
-            self._input_feature_dim = input_feature_dim
-            self.parameter_net = ParameterEmbeddingNet(self._template_id, self.preprocessing_infos).to(self.device)
-
-            self.plan_net.train()
-            self.parameter_net.train()
-
         # Splitting the dataset
-        train_dataset = generate_dataset(X1, X2, Y1, Y2, Z)
-        val_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
-        test_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
-
-        train_dataloader = DataLoader(train_dataset,
-                                      batch_size=batch_size,
-                                      collate_fn=collate_pairwise_fn)
-        # val_dataloader = DataLoader(val_dataset,
-        #                             batch_size=batch_size,
-        #                             shuffle=True,
-        #                             collate_fn=collate_pairwise_fn)
-        test_dataloader = DataLoader(test_dataset,
-                                     batch_size=batch_size,
-                                     shuffle=True,
-                                     collate_fn=collate_pairwise_fn)
-
-        plan_optimizer = torch.optim.Adam(self.plan_net.parameters())
-        parameter_optimizer = torch.optim.Adam(self.parameter_net.parameters())
-
-        bce_loss_fn = torch.nn.BCELoss()
-
-        losses = []
-        start_time = time()
-        for epoch in range(epochs):
-            train_acc = 0
-            test_acc = 0
-            train_loss = 0
-            test_loss = 0
-            loss_accum = 0
-            correct_predictions = 0
-            total_predictions = 0
-            for x1, x2, z, label in train_dataloader:
-                z = z.to(self.device)
-                label = label.to(self.device)
-
-                tree_x1 = self.plan_net.build_trees(x1)
-                tree_x2 = self.plan_net.build_trees(x2)
-
-                # pairwise
-                y_pred_1 = self.plan_net(tree_x1)
-                y_pred_2 = self.plan_net(tree_x2)
-                z_pred = self.parameter_net(z)
-                distance_1 = torch.norm(y_pred_1 - z_pred, dim=1)
-                distance_2 = torch.norm(y_pred_2 - z_pred, dim=1)
-                prob_y = torch.sigmoid(distance_1 - distance_2).float()
-
-                loss = bce_loss_fn(prob_y.view(-1, 1), label)
-                loss_accum += loss.item()
-
-                predicted_labels = (prob_y > 0.5).float()
-                label = label.squeeze()
-                correct_predictions += (predicted_labels == label).float().sum().item()
-                total_predictions += len(label)
-
-                plan_optimizer.zero_grad()
-                parameter_optimizer.zero_grad()
-                loss.backward()
-                plan_optimizer.step()
-                parameter_optimizer.step()
-
-            loss_accum /= len(train_dataset)
-            losses.append(loss_accum)
-            #print("Epoch", epoch, "training loss:", loss_accum)
-            train_loss += loss_accum
-            accuracy = correct_predictions / total_predictions
-            #print("training accuracy:", accuracy)
-            train_acc += accuracy
-
-            # if (epoch + 1) % 5 == 0:
-            #     loss, accuracy = self.evaluate(val_dataset, val_dataloader)
-            #     print("validation loss:", loss)
-            #     print("validation accuracy:", accuracy)
-
-        #print("training time:", time() - start_time, "batch size:", batch_size)
-        loss, accuracy = self.evaluate(test_dataset, test_dataloader)
-        #print("test loss:", loss)
-        #print("test accuracy:", accuracy)
-        test_acc += accuracy
-        test_loss += loss
-
-        return train_acc, test_acc, train_loss, test_loss
-
-
-    def test2(self, X1, X2, Y1, Y2, Z, X1_t, X2_t, Y1_t, Y2_t, Z_t, batch_size=16):
-        assert len(X1) == len(X2) and len(Y1) == len(Y2) and len(X1) == len(Y1) and len(X1) == len(Z)
-        if isinstance(Y1, list):
-            Y1 = np.array(Y1)
-            Y1 = Y1.reshape(-1, 1)
-        if isinstance(Y2, list):
-            Y2 = np.array(Y2)
-            Y2 = Y2.reshape(-1, 1)
-
-        assert len(X1_t) == len(X2_t) and len(Y1_t) == len(Y2_t) and len(X1_t) == len(Y1_t) and len(X1_t) == len(Z_t)
-        if isinstance(Y1_t, list):
-            Y1_t = np.array(Y1_t)
-            Y1_t = Y1_t.reshape(-1, 1)
-        if isinstance(Y2_t, list):
-            Y2_t = np.array(Y2_t)
-            Y2_t = Y2_t.reshape(-1, 1)
-
-        # Splitting the dataset
-        train_dataset = generate_dataset(X1, X2, Y1, Y2, Z)
-        val_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
-        test_dataset = generate_dataset(X1_t, X2_t, Y1_t, Y2_t, Z_t)
+        train_dataset, val_dataset, test_dataset = split_pair_dataset(X1, X2, Y1, Y2, Z)
 
         train_dataloader = DataLoader(train_dataset,
                                       batch_size=batch_size,
@@ -829,17 +540,13 @@ class RankPQOModel():
                                      shuffle=True,
                                      collate_fn=collate_pairwise_fn)
 
-        loss1, accuracy1 = self.evaluate(train_dataset, train_dataloader)
-        print("train loss:", loss1)
-        print("train accuracy:", accuracy1)
-        # loss2, accuracy2 = self.evaluate(val_dataset, val_dataloader)
-        # print("validation loss:", loss2)
-        # print("validation accuracy:", accuracy2)
-        loss2, accuracy2 = self.evaluate(test_dataset, test_dataloader)
-        print("test loss:", loss2)
-        print("test accuracy:", accuracy2)
-
-        return accuracy1, accuracy2, loss1, loss2
-        #return train_acc, test_acc, train_loss, test_loss
-
+        loss, accuracy = self.evaluate(train_dataset, train_dataloader)
+        print("train loss:", loss)
+        print("train accuracy:", accuracy)
+        loss, accuracy = self.evaluate(val_dataset, val_dataloader)
+        print("validation loss:", loss)
+        print("validation accuracy:", accuracy)
+        loss, accuracy = self.evaluate(test_dataset, test_dataloader)
+        print("test loss:", loss)
+        print("test accuracy:", accuracy)
 

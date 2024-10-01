@@ -9,7 +9,7 @@ import time
 sys.path.append('..')
 
 from model.feature import FeatureGenerator
-from model.model import RankPQOModel
+from model.model_no_rank import RankPQOModel
 
 k1 = [7, 9, 11, 13, 15]
 k2 = [15, 20, 25, 30, 32]
@@ -21,19 +21,22 @@ def _param_path(base):
     return os.path.join(base, "parameter_new.json")
 
 
+# def _cost_path(base):
+#     return os.path.join(base, "cost_matrix_2.json")
+
 def _cost_path(base):
-    return os.path.join(base, "cost_matrix_2.json")
+    return os.path.join(base, "latency_matrix_new.json")
 
 
 def _meta_path(base):
     return os.path.join(base, "meta_data.json")
 
 
-# def _plan_path(base):
-#     return os.path.join(base, "all_plans_by_hybrid_new.json")
-
 def _plan_path(base):
-    return os.path.join(base, "hybrid_plans.json")
+    return os.path.join(base, "all_plans_by_hybrid_new.json")
+
+# def _plan_path(base):
+#     return os.path.join(base, "hybrid_plans.json")
 
 
 def get_param_info(meta):
@@ -360,8 +363,7 @@ def alternating_training(training_data, model_path, device, epochs, epoch_step):
     #                'query084', 'query091', 'query099', 'query100', 'query101', 'query102']
     all_folders = []
     for subdir, _, files in os.walk(training_data):
-        if ("meta_data.json" in files and "hybrid_plans.json" in files
-                and "parameters.json" in files and "cost_matrix_2.json" in files):
+        if ("meta_data.json" in files):
             all_folders.append(os.path.basename(subdir))
 
     print(all_folders)
@@ -400,6 +402,7 @@ def alternating_training(training_data, model_path, device, epochs, epoch_step):
                 feature_generator = rank_PQO_model._feature_generator
             else:
                 feature_generator = FeatureGenerator(False, True)
+                # feature_generator = FeatureGenerator(True, False)
                 feature_generator.fit_pred_model(X_all)
 
             X1 = feature_generator.transform(X1)

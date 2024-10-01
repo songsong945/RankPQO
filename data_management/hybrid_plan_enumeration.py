@@ -32,7 +32,7 @@ def get_structural_representation(plan, depth=0):
 
 def connect_to_pg():
     connection = psycopg2.connect(
-        dbname=configure.dbname,
+        dbname=configure.dbname3,
         user=configure.user,
         password=configure.password,
         host=configure.host,
@@ -133,7 +133,7 @@ def generate_plans_by_join_order(connection, template, params, plan, k):
     return plans
 
 
-def generate_plans(meta_data_path, parameter_path,k1=200, k2=50):
+def generate_plans(meta_data_path, parameter_path, k1=10, k2=50):
     with open(meta_data_path, 'r') as f:
         meta_data = json.load(f)
     with open(parameter_path, 'r') as f:
@@ -146,7 +146,7 @@ def generate_plans(meta_data_path, parameter_path,k1=200, k2=50):
     i = 0
     for params in enumerate(parameters_list.values()):
         i += 1
-        if i>k1:
+        if i > k1:
             break
         plan = fetch_execution_plan(connection, meta_data['template'], params[1])
 
@@ -172,31 +172,31 @@ def generate_plans(meta_data_path, parameter_path,k1=200, k2=50):
     return plans
 
 
-
 def process_directory(subdir):
     meta_data_path = os.path.join(subdir, "meta_data.json")
-    parameter_path = os.path.join(subdir, "parameter_new.json")
+    parameter_path = os.path.join(subdir, "parameters.json")
 
     if os.path.isfile(meta_data_path) and os.path.isfile(parameter_path):
-        #print(f"Processing: {meta_data_path}")
+        print(f"Processing: {meta_data_path}")
         plans = generate_plans(meta_data_path, parameter_path)
 
         print(len(plans))
 
-        # with open(os.path.join(subdir, "all_plans_by_hybrid_new.json"), 'w') as f:
-        #     json.dump(plans, f, indent=4)
+        with open(os.path.join(subdir, "hybrid_plans.json"), 'w') as f:
+            json.dump(plans, f, indent=4)
+
 
 def save_execution_plans_for_all_multiprocess(data_directory, num_processes=8):
-    dirs = [x[0] for x in os.walk(data_directory) if 'a' in os.path.basename(x[0])]
+    dirs = [x[0] for x in os.walk(data_directory)]
 
     with Pool(num_processes) as pool:
         pool.map(process_directory, dirs)
 
 
 if __name__ == "__main__":
-    meta_data_path = '../training_data/JOB/'
+    meta_data_path = '../training_data/TPCDS/'
     # meta_data_path = '../training_data/example_one/'
     start_time = time.time()
     save_execution_plans_for_all_multiprocess(meta_data_path)
     end_time = time.time()
-    print(end_time-start_time)
+    print(end_time - start_time)

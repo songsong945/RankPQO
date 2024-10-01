@@ -1,4 +1,5 @@
 import random
+import time
 
 import psycopg2
 import json
@@ -8,6 +9,8 @@ import itertools
 
 import numpy as np
 from multiprocessing import Pool
+
+from deduplicate_plan import get_structural_representation, compute_hash
 
 
 def extract_tables_from_node(node):
@@ -34,8 +37,6 @@ def generate_join_order_hints(plan, k):
 
     table_permutations = itertools.permutations(tables)
 
-    print("----")
-
     # Sample k permutations from the generator
     sampled_permutations = list(itertools.islice(table_permutations, k))
 
@@ -49,7 +50,7 @@ def generate_join_order_hints(plan, k):
 
 def connect_to_pg():
     connection = psycopg2.connect(
-        dbname=configure.dbname,
+        dbname=configure.dbname3,
         user=configure.user,
         password=configure.password,
         host=configure.host,
@@ -101,35 +102,49 @@ def generate_plans_for_query(meta_data_path, parameter_path):
     return plans
 
 
-def generate_plans_for_query_by_distinct_plan(meta_data_path, parameter_path, plan_json_path):
+def generate_plans_by_join_order(connection, template, params, plan, k):
+    plans = []
+    hints = generate_join_order_hints(plan, k)
+    for hint in hints:
+        plan_with_hint = fetch_execution_plan(connection, hint + " " + template, params)
+        plans.append(plan_with_hint)
+    return plans
+
+
+def generate_plans(meta_data_path, parameter_path, k1=10, k2=50):
     with open(meta_data_path, 'r') as f:
         meta_data = json.load(f)
     with open(parameter_path, 'r') as f:
         parameters_list = json.load(f)
-    with open(plan_json_path, 'r') as f:
-        plan_data = json.load(f)
 
     connection = connect_to_pg()
     plans = {}
+    seen_hashes = set()
+    idx = 0
+    i = 0
+    for params in enumerate(parameters_list.values()):
+        i += 1
+        if i > k1:
+            break
+        plan = fetch_execution_plan(connection, meta_data['template'], params[1])
 
-    # 从plan.json中的plan IDs获取实际的ID
-    plan_ids = [int(key.split(" ")[1]) for key in plan_data.keys()]
+        representation = get_structural_representation(plan['Plan'])
+        hash_val = compute_hash(representation)
+        if hash_val in seen_hashes:
+            continue
+        seen_hashes.add(hash_val)
+        idx += 1
+        plans[f"plan {idx}"] = plan
 
-    for plan_id in plan_ids:
-        plans[f"plan {plan_id}"] = plan_data[f"plan {plan_id}"]
-
-    sampled_plan_ids = plan_ids[:20]
-    idx = max(plan_ids)
-
-    for plan_id in sampled_plan_ids:
-        params = parameters_list[f"parameter {plan_id}"]
-        plan = plan_data[f"plan {plan_id}"]
-
-        hints = generate_join_order_hints(plan, 200)
-        for hint in hints:
+        altered_plans = generate_plans_by_join_order(connection, meta_data['template'], params[1], plan, k2)
+        for plan in altered_plans:
+            representation = get_structural_representation(plan['Plan'])
+            hash_val = compute_hash(representation)
+            if hash_val in seen_hashes:
+                continue
+            seen_hashes.add(hash_val)
             idx += 1
-            modified_plan_with_hint = fetch_execution_plan(connection, hint + " " + meta_data['template'], params)
-            plans[f"plan {idx}"] = modified_plan_with_hint
+            plans[f"plan {idx}"] = plan
 
     connection.close()
     return plans
@@ -142,7 +157,7 @@ def save_execution_plans_for_all(data_directory):
 
         if os.path.isfile(meta_data_path) and os.path.isfile(parameter_path):
             print(f"Processing: {meta_data_path}")
-            plans = generate_plans_for_query_by_distinct_plan(meta_data_path, parameter_path)
+            plans = generate_plans(meta_data_path, parameter_path)
 
             with open(os.path.join(subdir, "all_plans_by_join_order.json"), 'w') as f:
                 json.dump(plans, f, indent=4)
@@ -150,25 +165,34 @@ def save_execution_plans_for_all(data_directory):
 
 def process_directory(subdir):
     meta_data_path = os.path.join(subdir, "meta_data.json")
-    parameter_path = os.path.join(subdir, "parameter.json")
-    plan_json_path = os.path.join(subdir, "plan.json")
+    parameter_path = os.path.join(subdir, "parameters.json")
 
     if os.path.isfile(meta_data_path) and os.path.isfile(parameter_path):
         print(f"Processing: {meta_data_path}")
-        plans = generate_plans_for_query_by_distinct_plan(meta_data_path, parameter_path, plan_json_path)
+        plans = generate_plans(meta_data_path, parameter_path)
+        print(len(plans))
 
-        with open(os.path.join(subdir, "all_plans_by_join_order.json"), 'w') as f:
+        with open(os.path.join(subdir, "hybrid_plans.json"), 'w') as f:
             json.dump(plans, f, indent=4)
+    return len(plans)
 
 
-def save_execution_plans_for_all_multiprocess(data_directory, num_processes=12):
-    dirs = [x[0] for x in os.walk(data_directory) if 'a' in os.path.basename(x[0])]
+def save_execution_plans_for_all_multiprocess(data_directory, num_processes=8):
+    dirs = [x[0] for x in os.walk(data_directory)]
 
     with Pool(num_processes) as pool:
         pool.map(process_directory, dirs)
 
 
 if __name__ == "__main__":
-    meta_data_path = '../training_data/JOB/'
+    meta_data_path = '../training_data/TPCDS/'
     # meta_data_path = '../training_data/example_one/'
-    save_execution_plans_for_all_multiprocess(meta_data_path)
+    start_time = time.time()
+    dirs = [x[0] for x in os.walk(meta_data_path)][1:]
+    num = 0
+    for dir in dirs:
+        num += process_directory(dir)
+    #save_execution_plans_for_all_multiprocess(meta_data_path)
+    end_time = time.time()
+    print(end_time - start_time)
+    print(num)

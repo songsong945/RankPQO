@@ -6,6 +6,8 @@ import os
 import configure
 import hashlib
 
+from deduplicate_plan import deduplicate_plans2
+
 
 def get_structural_representation(plan, depth=0):
     node_type = plan['Node Type']
@@ -27,7 +29,7 @@ def compute_hash(representation):
 # 1. Connect to PostgreSQL
 def connect_to_pg():
     connection = psycopg2.connect(
-        dbname=configure.dbname,
+        dbname=configure.dbname3,
         user=configure.user,
         password=configure.password,
         host=configure.host,
@@ -62,7 +64,7 @@ def generate_plans_for_query(meta_data_path, parameter_path):
     seen_hashes = set()
     for idx, params in enumerate(parameters_list.values()):
         # For each parameter set, fetch the execution plan
-        if idx > 200:
+        if idx > 10:
             break
         plan = fetch_execution_plan(connection, meta_data['template'], params)
         representation = get_structural_representation(plan['Plan'])
@@ -82,21 +84,22 @@ def save_execution_plans_for_all(data_directory):
     num = 0
     for subdir, _, _ in os.walk(data_directory):
         meta_data_path = os.path.join(subdir, "meta_data.json")
-        parameter_path = os.path.join(subdir, "parameter_new.json")
+        parameter_path = os.path.join(subdir, "parameters.json")
 
         if os.path.isfile(meta_data_path) and os.path.isfile(parameter_path):
             print(f"Processing: {meta_data_path}")
             plans = generate_plans_for_query(meta_data_path, parameter_path)
-            num += len(plans)
+            de_plans = deduplicate_plans2(plans)
+            num += len(de_plans)
 
-            with open(os.path.join(subdir, "all_plans_3.json"), 'w') as f:
-                json.dump(plans, f, indent=4)
+            with open(os.path.join(subdir, "log_plans.json"), 'w') as f:
+                json.dump(de_plans, f, indent=4)
 
     print(f'plan number: {num}')
 
 
 if __name__ == "__main__":
-    meta_data_path = '../training_data/JOB/'
+    meta_data_path = '../training_data/TPCDS/'
     start_time = time()
     save_execution_plans_for_all(meta_data_path)
     end_time = time()

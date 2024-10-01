@@ -28,7 +28,7 @@ def populate_column_op(dataset_path):
 
 if __name__ == "__main__":
 
-    dataset_path = '../training_data/JOB/'
+    dataset_path = '../training_data/TPCDS/'
     out = populate_column_op(dataset_path)
     with open(dataset_path+'columns_and_operators.json', 'w') as file:
         json.dump(out, file, indent=4)

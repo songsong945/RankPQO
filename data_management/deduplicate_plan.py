@@ -65,6 +65,22 @@ def compute_hash(representation):
     return m.hexdigest()
 
 
+def deduplicate_plans2(plans):
+
+    unique_plans = {}
+    seen_hashes = set()
+
+    for plan_name, plan in plans.items():
+        representation = get_structural_representation(plan['Plan'])
+        # representation = generate_hint_from_plan(plan)
+        hash_val = compute_hash(representation)
+        if hash_val not in seen_hashes:
+            seen_hashes.add(hash_val)
+            unique_plans[plan_name] = plan
+
+    return unique_plans
+
+
 def deduplicate_plans(plan_file_path):
     with open(plan_file_path, 'r') as file:
         plans = json.load(file)

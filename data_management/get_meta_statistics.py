@@ -1,15 +1,24 @@
 import json
 import psycopg2
 import re
+
+from decimal import Decimal
+
 import configure
 import os
+
+def decimal_default(obj):
+    if isinstance(obj, Decimal):
+        return str(obj)  # 或者使用 float(obj) 如果不需要保留精确性
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
 
 
 def add_statistics(meta_data_path):
     connection = psycopg2.connect(
         host=configure.host,
         port=configure.port,
-        dbname=configure.dbname,
+        dbname=configure.dbname3,
         user=configure.user,
         password=configure.password
     )
@@ -20,17 +29,23 @@ def add_statistics(meta_data_path):
         meta_data = json.load(file)
 
     # 解析template字段以获取表名
-    tables_section = re.search(r"FROM(.*?)WHERE", meta_data["template"], re.S).group(1).strip()
-    table_mapping = {}
-    for table_definition in tables_section.split(","):
-        table_name, alias = [item.strip() for item in table_definition.split(" AS ")]
-        table_mapping[alias] = table_name
+    # tables_section = re.search(r"FROM(.*?)WHERE", meta_data["template"], re.S).group(1).strip()
+    table_mapping = configure.mapping_tpcds
+    # for table_definition in tables_section.split(","):
+    #     table_name, alias = [item.strip() for item in table_definition.split(" AS ")]
+    #     table_mapping[alias] = table_name
 
     # 为每个谓词获取统计信息
     for predicate in meta_data["predicates"]:
         table_column = predicate["column"]
-        alias, column_name = table_column.split(".")
-        actual_table_name = table_mapping[alias]
+        if '.' in table_column:
+        # alias, column_name = table_column.split(".")
+        # actual_table_name = table_mapping[alias]
+            alias, column_name = table_column.split(".")
+        else:
+            column_name = table_column
+        actual_table_name = table_mapping[table_column]
+
 
         # 对于 int 类型
         if predicate["data_type"] == "int":
@@ -62,7 +77,7 @@ def add_statistics(meta_data_path):
 
     # 更新meta_data.json文件
     with open(meta_data_path, 'w') as file:
-        json.dump(meta_data, file, indent=4)
+        json.dump(meta_data, file, indent=4, default=decimal_default)
 
 
 def process_all_meta_data(data_directory):
@@ -76,5 +91,5 @@ def process_all_meta_data(data_directory):
 
 
 if __name__ == "__main__":
-    meta_data_path = '../training_data/JOB/'
+    meta_data_path = '../training_data/TPCDS/'
     process_all_meta_data(meta_data_path)
